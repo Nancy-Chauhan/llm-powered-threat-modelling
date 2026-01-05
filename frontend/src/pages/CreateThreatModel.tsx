@@ -16,7 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useThreatModelStore } from '@/store/threat-model-store';
 import { cn } from '@/lib/utils';
-import type { QuestionAnswer, GuidedQuestion, ContextFile } from '@threat-modeling/shared';
+import type { QuestionAnswer, GuidedQuestion } from '@threat-modeling/shared';
 
 type WizardStep = 'basics' | 'context' | 'questions' | 'review';
 
@@ -39,8 +39,8 @@ export function CreateThreatModel() {
     pollGenerationStatus,
     generationStatus,
     isGenerating,
-    currentModel,
     error,
+    clearError,
   } = useThreatModelStore();
 
   const [currentStep, setCurrentStep] = useState<WizardStep>('basics');
@@ -55,8 +55,9 @@ export function CreateThreatModel() {
   const [modelId, setModelId] = useState<string | null>(null);
 
   useEffect(() => {
+    clearError(); // Clear any previous errors
     fetchGuidedQuestions();
-  }, [fetchGuidedQuestions]);
+  }, [fetchGuidedQuestions, clearError]);
 
   // Poll generation status
   useEffect(() => {
@@ -115,6 +116,7 @@ export function CreateThreatModel() {
   };
 
   const handleNext = () => {
+    clearError(); // Clear any previous errors when navigating
     const stepIndex = STEPS.findIndex((s) => s.id === currentStep);
     if (stepIndex < STEPS.length - 1) {
       setCurrentStep(STEPS[stepIndex + 1].id);

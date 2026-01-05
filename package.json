@@ -3,7 +3,7 @@
   "private": true,
   "workspaces": ["packages/*", "frontend", "backend"],
   "scripts": {
-    "dev": "bun run --parallel dev:frontend dev:backend",
+    "dev": "bun run dev:backend & bun run dev:frontend",
     "dev:frontend": "cd frontend && bun run dev",
     "dev:backend": "cd backend && bun run dev",
     "build": "bun run --parallel build:frontend build:backend",

@@ -16,11 +16,8 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useThreatModelStore } from '@/store/threat-model-store';
-import { SeverityBadge } from '@/components/SeverityBadge';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ThreatCard } from '@/components/ThreatCard';
-import { cn } from '@/lib/utils';
-import { CATEGORY_LABELS } from '@threat-modeling/shared';
 
 export function ThreatModelView() {
   const { id } = useParams<{ id: string }>();

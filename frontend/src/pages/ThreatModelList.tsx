@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { useThreatModelStore } from '@/store/threat-model-store';
 import { SeverityBadge } from '@/components/SeverityBadge';
 import { StatusBadge } from '@/components/StatusBadge';
-import { cn } from '@/lib/utils';
 
 export function ThreatModelList() {
   const {
@@ -17,14 +16,16 @@ export function ThreatModelList() {
     error,
     fetchThreatModels,
     deleteThreatModel,
+    clearError,
   } = useThreatModelStore();
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
 
   useEffect(() => {
+    clearError(); // Clear any stale errors on mount
     fetchThreatModels(1, search || undefined, statusFilter || undefined);
-  }, [fetchThreatModels, statusFilter]);
+  }, [fetchThreatModels, statusFilter, clearError]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

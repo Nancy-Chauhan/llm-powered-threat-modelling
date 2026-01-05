@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   CATEGORY_LABELS,
   type RiskSeverity,
@@ -43,7 +42,7 @@ interface ThreatListProps {
   recommendations?: string[];
 }
 
-export function ThreatList({ threats, summary, recommendations }: ThreatListProps) {
+export function ThreatList({ threats, recommendations }: ThreatListProps) {
   const [expandedThreats, setExpandedThreats] = useState<Set<string>>(new Set());
 
   const toggleThreat = (id: string) => {

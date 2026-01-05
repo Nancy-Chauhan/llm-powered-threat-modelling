@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, Shield, Target, CheckCircle2, Circle, Clock } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { SeverityBadge } from '@/components/SeverityBadge';
 import { useThreatModelStore } from '@/store/threat-model-store';
 import { cn } from '@/lib/utils';
@@ -171,12 +170,13 @@ export function ThreatCard({ threat, rank, threatModelId, readOnly = false }: Th
                       onClick={(e) => {
                         e.stopPropagation();
                         if (readOnly) return;
-                        const nextStatus = {
+                        const statusMap: Record<string, string> = {
                           proposed: 'accepted',
                           accepted: 'implemented',
                           implemented: 'proposed',
                           rejected: 'proposed',
-                        }[mitigation.status] || 'proposed';
+                        };
+                        const nextStatus = statusMap[mitigation.status as string] || 'proposed';
                         handleMitigationStatusChange(mitigation.id, nextStatus);
                       }}
                       className={cn(

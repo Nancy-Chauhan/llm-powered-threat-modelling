@@ -6,6 +6,18 @@
 # Node artifact files
 node_modules/
 dist/
+bun.lockb
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Uploads
+uploads/
+
+# Drizzle
+drizzle/
 
 # Compiled Java class files
 *.class

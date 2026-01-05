@@ -111,15 +111,25 @@ export class OpenAIProvider implements LLMProvider {
           case 'text':
             return { type: 'text', text: block.text };
 
-          case 'image':
-            // Pass URL directly - OpenAI fetches images from URLs
+          case 'image': {
+            // Use base64 data URL if available, otherwise use URL directly
+            let imageUrl: string;
+            if (block.data) {
+              // Convert base64 to data URL format that OpenAI accepts
+              imageUrl = `data:${block.mimeType};base64,${block.data}`;
+            } else if (block.url) {
+              imageUrl = block.url;
+            } else {
+              throw new Error('Image content must have either data or url');
+            }
             return {
               type: 'image_url',
               image_url: {
-                url: block.url,
+                url: imageUrl,
                 detail: 'high',
               },
             };
+          }
 
           case 'document':
             // OpenAI doesn't support PDFs - skip or convert to text

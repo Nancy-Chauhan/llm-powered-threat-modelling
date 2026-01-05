@@ -97,7 +97,9 @@ function buildTextContext(threatModel: ThreatModelSelect): string {
 }
 
 /**
- * Convert file to provider-agnostic content block using storage URLs
+ * Convert file to provider-agnostic content block using base64 data
+ * Files are read directly from storage and encoded as base64 to avoid
+ * issues with localhost URLs not being accessible from LLM provider servers.
  */
 async function fileToContentBlock(
   file: ContextFileSelect,
@@ -107,28 +109,28 @@ async function fileToContentBlock(
     const storage = getDefaultStorageProvider();
     const mimeType = file.mimeType;
 
-    // Get URL for the file (signed URL for S3, public URL for local)
-    // Use 1 hour expiry for signed URLs
-    const fileUrl = await storage.getUrl(file.storagePath, 3600);
-
-    // Handle images
+    // Handle images - read and encode as base64
     if (mimeType.startsWith('image/')) {
       const validImageTypes = provider.getSupportedImageTypes();
       if (validImageTypes.includes(mimeType)) {
+        const fileData = await storage.get(file.storagePath);
+        const base64Data = fileData.toString('base64');
         return {
           type: 'image',
-          url: fileUrl,
+          data: base64Data,
           mimeType: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
         };
       }
     }
 
-    // Handle PDFs
+    // Handle PDFs - read and encode as base64
     if (mimeType === 'application/pdf') {
       if (provider.supportsPDF()) {
+        const fileData = await storage.get(file.storagePath);
+        const base64Data = fileData.toString('base64');
         return {
           type: 'document',
-          url: fileUrl,
+          data: base64Data,
           mimeType: 'application/pdf',
           filename: file.originalName,
         };
@@ -142,7 +144,6 @@ async function fileToContentBlock(
     }
 
     // Handle text files - read content and include as text
-    // Text files need to be read since they're embedded inline
     if (
       mimeType.startsWith('text/') ||
       mimeType === 'application/json' ||

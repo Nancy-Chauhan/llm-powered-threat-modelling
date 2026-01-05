@@ -99,8 +99,11 @@ export class AnthropicProvider implements LLMProvider {
           break;
 
         case 'image': {
-          // Fetch image from URL and convert to base64
-          const imageData = await this.fetchAsBase64(block.url);
+          // Use base64 data directly if available, otherwise fetch from URL
+          const imageData = block.data || (block.url ? await this.fetchAsBase64(block.url) : null);
+          if (!imageData) {
+            throw new Error('Image content must have either data or url');
+          }
           results.push({
             type: 'image',
             source: {
@@ -113,8 +116,11 @@ export class AnthropicProvider implements LLMProvider {
         }
 
         case 'document': {
-          // Fetch document from URL and convert to base64
-          const docData = await this.fetchAsBase64(block.url);
+          // Use base64 data directly if available, otherwise fetch from URL
+          const docData = block.data || (block.url ? await this.fetchAsBase64(block.url) : null);
+          if (!docData) {
+            throw new Error('Document content must have either data or url');
+          }
           results.push({
             type: 'document',
             source: {

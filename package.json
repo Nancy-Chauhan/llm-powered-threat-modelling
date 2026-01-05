@@ -11,6 +11,8 @@
     "build:backend": "cd backend && bun run build",
     "db:generate": "cd backend && bun run db:generate",
     "db:migrate": "cd backend && bun run db:migrate",
+    "db:push": "cd backend && bun run db:push",
+    "db:drop": "cd backend && bun run db:drop",
     "db:studio": "cd backend && bun run db:studio"
   },
   "devDependencies": {

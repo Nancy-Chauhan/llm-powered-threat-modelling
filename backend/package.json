@@ -8,6 +8,8 @@
     "start": "bun run dist/index.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:drop": "drizzle-kit drop",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {

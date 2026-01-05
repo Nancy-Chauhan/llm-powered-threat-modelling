@@ -68,9 +68,14 @@ OPENAI_MODEL=gpt-4o
 # Create database
 createdb threat_modeling
 
-# Run migrations
+# Option 1: Run migrations (recommended for production)
 bun run db:migrate
+
+# Option 2: Push schema directly (faster for development)
+bun run db:push
 ```
+
+> **Note**: If migrations fail due to partial state, use `bun run db:push` to sync the schema directly.
 
 ### 4. Start Development
 
@@ -176,6 +181,8 @@ llm-threat-modelling/
 | `bun run build` | Build for production |
 | `bun run db:migrate` | Run database migrations |
 | `bun run db:generate` | Generate migrations from schema |
+| `bun run db:push` | Push schema directly to database (faster for development) |
+| `bun run db:drop` | Drop database tables |
 | `bun run db:studio` | Open Drizzle Studio |
 
 ## API Endpoints

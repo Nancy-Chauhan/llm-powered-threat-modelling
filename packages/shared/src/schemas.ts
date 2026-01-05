@@ -29,6 +29,70 @@ export const FileType = z.enum(['prd', 'diagram', 'screenshot', 'other']);
 export type FileType = z.infer<typeof FileType>;
 
 // ============================================
+// JIRA SCHEMAS
+// ============================================
+
+export const JiraCommentSchema = z.object({
+  id: z.string(),
+  author: z.string(),
+  body: z.string(),
+  created: z.string(),
+});
+export type JiraComment = z.infer<typeof JiraCommentSchema>;
+
+export const JiraAttachmentSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+  size: z.number(),
+  url: z.string(),
+});
+export type JiraAttachment = z.infer<typeof JiraAttachmentSchema>;
+
+export const JiraLinkedIssueSchema = z.object({
+  issueKey: z.string(),
+  title: z.string(),
+  linkType: z.string(),
+  direction: z.enum(['inward', 'outward']),
+});
+export type JiraLinkedIssue = z.infer<typeof JiraLinkedIssueSchema>;
+
+export const JiraRemoteLinkSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+});
+export type JiraRemoteLink = z.infer<typeof JiraRemoteLinkSchema>;
+
+export const JiraTicketSchema = z.object({
+  id: z.string().uuid(),
+  threatModelId: z.string().uuid(),
+  issueKey: z.string(),
+  projectKey: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  issueType: z.string(),
+  status: z.string(),
+  priority: z.string().nullable(),
+  labels: z.array(z.string()),
+  reporter: z.object({
+    displayName: z.string(),
+    email: z.string().optional(),
+  }).nullable(),
+  assignee: z.object({
+    displayName: z.string(),
+    email: z.string().optional(),
+  }).nullable(),
+  comments: z.array(JiraCommentSchema),
+  attachments: z.array(JiraAttachmentSchema),
+  linkedIssues: z.array(JiraLinkedIssueSchema),
+  remoteLinks: z.array(JiraRemoteLinkSchema),
+  jiraCreatedAt: z.string().nullable(),
+  jiraUpdatedAt: z.string().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type JiraTicket = z.infer<typeof JiraTicketSchema>;
+
+// ============================================
 // CORE SCHEMAS
 // ============================================
 
@@ -91,6 +155,7 @@ export const ThreatModelSchema = z.object({
   systemDescription: z.string().optional(),
   questionsAnswers: z.array(QuestionAnswerSchema),
   contextFiles: z.array(ContextFileSchema).optional(),
+  jiraTickets: z.array(JiraTicketSchema).optional(),
 
   // Generated content
   threats: z.array(ThreatSchema),

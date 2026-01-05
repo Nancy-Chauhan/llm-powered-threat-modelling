@@ -3,7 +3,7 @@ import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
 import { eq, desc, sql, ilike, and } from 'drizzle-orm';
-import { db, threatModels, contextFiles } from '../db';
+import { db, threatModels, contextFiles, jiraTickets } from '../db';
 import { generateThreatModel } from '../services/threat-generation';
 import { generateMarkdownReport, generateJsonExport } from '../services/pdf-export';
 import { getDefaultStorageProvider } from '../storage';
@@ -12,6 +12,11 @@ import {
   UpdateThreatModelRequestSchema,
   GUIDED_QUESTIONS,
 } from '@threat-modeling/shared';
+import {
+  getJiraService,
+  isJiraConfigured,
+  parseJiraUrl,
+} from '../services/jira.service';
 
 const app = new Hono();
 
@@ -105,10 +110,10 @@ app.get('/:id', async (c) => {
     return c.json({ error: 'Threat model not found' }, 404);
   }
 
-  const files = await db
-    .select()
-    .from(contextFiles)
-    .where(eq(contextFiles.threatModelId, id));
+  const [files, tickets] = await Promise.all([
+    db.select().from(contextFiles).where(eq(contextFiles.threatModelId, id)),
+    db.select().from(jiraTickets).where(eq(jiraTickets.threatModelId, id)),
+  ]);
 
   return c.json({
     ...model,
@@ -119,6 +124,10 @@ app.get('/:id', async (c) => {
     contextFiles: files.map((f) => ({
       ...f,
       createdAt: f.createdAt.toISOString(),
+    })),
+    jiraTickets: tickets.map((t) => ({
+      ...t,
+      createdAt: t.createdAt.toISOString(),
     })),
   });
 });
@@ -511,5 +520,153 @@ app.patch(
     return c.json(mitigation);
   }
 );
+
+// =============================================================================
+// JIRA Ticket Routes
+// =============================================================================
+
+// Add JIRA ticket to threat model
+app.post(
+  '/:id/jira-tickets',
+  zValidator(
+    'json',
+    z.object({
+      issueKeyOrUrl: z.string().min(1),
+    })
+  ),
+  async (c) => {
+    const id = c.req.param('id');
+    const { issueKeyOrUrl } = c.req.valid('json');
+
+    // Check if model exists
+    const [model] = await db
+      .select()
+      .from(threatModels)
+      .where(eq(threatModels.id, id));
+
+    if (!model) {
+      return c.json({ error: 'Threat model not found' }, 404);
+    }
+
+    // Check if JIRA is configured
+    if (!isJiraConfigured()) {
+      return c.json(
+        {
+          error: 'JIRA is not configured. Please set JIRA_HOST, JIRA_EMAIL, and JIRA_API_TOKEN.',
+        },
+        400
+      );
+    }
+
+    // Parse the input to get issue key
+    const parsed = parseJiraUrl(issueKeyOrUrl);
+    if (!parsed) {
+      return c.json({ error: 'Invalid JIRA URL or issue key format' }, 400);
+    }
+
+    // Check if ticket already exists for this model
+    const [existing] = await db
+      .select()
+      .from(jiraTickets)
+      .where(
+        and(
+          eq(jiraTickets.threatModelId, id),
+          eq(jiraTickets.issueKey, parsed.issueKey)
+        )
+      );
+
+    if (existing) {
+      return c.json({ error: `JIRA ticket ${parsed.issueKey} is already added to this model` }, 400);
+    }
+
+    // Fetch ticket data from JIRA
+    try {
+      const jiraService = getJiraService();
+      const ticketData = await jiraService.fetchIssue(parsed.issueKey);
+
+      // Save to database
+      const [ticket] = await db
+        .insert(jiraTickets)
+        .values({
+          threatModelId: id,
+          issueKey: ticketData.issueKey,
+          projectKey: ticketData.projectKey,
+          title: ticketData.title,
+          description: ticketData.description,
+          issueType: ticketData.issueType,
+          status: ticketData.status,
+          priority: ticketData.priority,
+          labels: ticketData.labels,
+          reporter: ticketData.reporter,
+          assignee: ticketData.assignee,
+          comments: ticketData.comments,
+          attachments: ticketData.attachments,
+          linkedIssues: ticketData.linkedIssues,
+          remoteLinks: ticketData.remoteLinks,
+          jiraCreatedAt: ticketData.created,
+          jiraUpdatedAt: ticketData.updated,
+        })
+        .returning();
+
+      return c.json(
+        {
+          ...ticket,
+          createdAt: ticket.createdAt.toISOString(),
+        },
+        201
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+
+      if (message.includes('401') || message.includes('Unauthorized')) {
+        return c.json({ error: 'JIRA authentication failed' }, 401);
+      }
+      if (message.includes('403') || message.includes('Forbidden')) {
+        return c.json({ error: 'No permission to access this JIRA issue' }, 403);
+      }
+      if (message.includes('404') || message.includes('not found')) {
+        return c.json({ error: `JIRA issue ${parsed.issueKey} not found` }, 404);
+      }
+
+      return c.json({ error: `Failed to fetch JIRA issue: ${message}` }, 500);
+    }
+  }
+);
+
+// List JIRA tickets for a threat model
+app.get('/:id/jira-tickets', async (c) => {
+  const id = c.req.param('id');
+
+  const tickets = await db
+    .select()
+    .from(jiraTickets)
+    .where(eq(jiraTickets.threatModelId, id));
+
+  return c.json(
+    tickets.map((t) => ({
+      ...t,
+      createdAt: t.createdAt.toISOString(),
+    }))
+  );
+});
+
+// Delete JIRA ticket from threat model
+app.delete('/:id/jira-tickets/:ticketId', async (c) => {
+  const id = c.req.param('id');
+  const ticketId = c.req.param('ticketId');
+
+  const [ticket] = await db
+    .select()
+    .from(jiraTickets)
+    .where(eq(jiraTickets.id, ticketId));
+
+  if (!ticket || ticket.threatModelId !== id) {
+    return c.json({ error: 'JIRA ticket not found' }, 404);
+  }
+
+  await db.delete(jiraTickets).where(eq(jiraTickets.id, ticketId));
+
+  return c.json({ success: true });
+});
 
 export default app;

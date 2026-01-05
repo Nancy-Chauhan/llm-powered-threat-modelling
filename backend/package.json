@@ -11,13 +11,14 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
-    "@threat-modeling/shared": "workspace:*",
     "@anthropic-ai/sdk": "^0.32.1",
     "@aws-sdk/client-s3": "^3.700.0",
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@hono/zod-validator": "^0.4.2",
+    "@threat-modeling/shared": "workspace:*",
     "drizzle-orm": "^0.38.3",
     "hono": "^4.6.14",
+    "jira.js": "^5.2.2",
     "nanoid": "^5.0.9",
     "openai": "^4.77.0",
     "postgres": "^3.4.5",

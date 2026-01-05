@@ -80,12 +80,74 @@ export const contextFiles = pgTable('context_files', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// JIRA Tickets table - stores JIRA ticket context for threat models
+export const jiraTickets = pgTable('jira_tickets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  threatModelId: uuid('threat_model_id')
+    .notNull()
+    .references(() => threatModels.id, { onDelete: 'cascade' }),
+
+  // JIRA identifiers
+  issueKey: text('issue_key').notNull(),
+  projectKey: text('project_key').notNull(),
+
+  // Ticket data
+  title: text('title').notNull(),
+  description: text('description'),
+  issueType: text('issue_type').notNull(),
+  status: text('status').notNull(),
+  priority: text('priority'),
+  labels: jsonb('labels').$type<string[]>().default([]),
+
+  // People
+  reporter: jsonb('reporter').$type<{ displayName: string; email?: string } | null>(),
+  assignee: jsonb('assignee').$type<{ displayName: string; email?: string } | null>(),
+
+  // Related data as JSON
+  comments: jsonb('comments').$type<JiraComment[]>().default([]),
+  attachments: jsonb('attachments').$type<JiraAttachment[]>().default([]),
+  linkedIssues: jsonb('linked_issues').$type<JiraLinkedIssue[]>().default([]),
+  remoteLinks: jsonb('remote_links').$type<JiraRemoteLink[]>().default([]),
+
+  // Timestamps
+  jiraCreatedAt: text('jira_created_at'),
+  jiraUpdatedAt: text('jira_updated_at'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Type definitions for JSONB columns
 interface QuestionAnswer {
   questionId: string;
   question: string;
   answer: string;
   category?: string;
+}
+
+interface JiraComment {
+  id: string;
+  author: string;
+  body: string;
+  created: string;
+}
+
+interface JiraAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  url: string;
+}
+
+interface JiraLinkedIssue {
+  issueKey: string;
+  title: string;
+  linkType: string;
+  direction: 'inward' | 'outward';
+}
+
+interface JiraRemoteLink {
+  title: string;
+  url: string;
 }
 
 interface Mitigation {
@@ -115,3 +177,5 @@ export type ThreatModelInsert = typeof threatModels.$inferInsert;
 export type ThreatModelSelect = typeof threatModels.$inferSelect;
 export type ContextFileInsert = typeof contextFiles.$inferInsert;
 export type ContextFileSelect = typeof contextFiles.$inferSelect;
+export type JiraTicketInsert = typeof jiraTickets.$inferInsert;
+export type JiraTicketSelect = typeof jiraTickets.$inferSelect;

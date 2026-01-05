@@ -16,12 +16,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useThreatModelStore } from '@/store/threat-model-store';
 import { cn } from '@/lib/utils';
+import { JiraInput, type JiraTicket } from '@/components/JiraInput';
+import { JiraPreview } from '@/components/JiraPreview';
 
 type WizardStep = 'basics' | 'context' | 'review';
 
 const STEPS: { id: WizardStep; title: string; description: string }[] = [
   { id: 'basics', title: 'Basics', description: 'Name and describe your project' },
-  { id: 'context', title: 'Context', description: 'Upload PRDs, diagrams, screenshots' },
+  { id: 'context', title: 'Context', description: 'Add JIRA tickets, PRDs, diagrams' },
   { id: 'review', title: 'Review', description: 'Review and generate' },
 ];
 
@@ -47,6 +49,7 @@ export function CreateThreatModel() {
   const [description, setDescription] = useState('');
   const [systemDescription, setSystemDescription] = useState('');
   const [files, setFiles] = useState<Array<{ file: File; type: string }>>([]);
+  const [jiraTickets, setJiraTickets] = useState<JiraTicket[]>([]);
   const [modelId, setModelId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -90,6 +93,17 @@ export function CreateThreatModel() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const handleJiraTicketAdded = (ticket: JiraTicket) => {
+    // Prevent duplicates
+    if (!jiraTickets.find((t) => t.issueKey === ticket.issueKey)) {
+      setJiraTickets((prev) => [...prev, ticket]);
+    }
+  };
+
+  const removeJiraTicket = (issueKey: string) => {
+    setJiraTickets((prev) => prev.filter((t) => t.issueKey !== issueKey));
+  };
+
   const canProceed = () => {
     switch (currentStep) {
       case 'basics':
@@ -129,6 +143,15 @@ export function CreateThreatModel() {
       });
 
       setModelId(model.id);
+
+      // Add JIRA tickets
+      for (const ticket of jiraTickets) {
+        await fetch(`/api/threat-models/${model.id}/jira-tickets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ issueKeyOrUrl: ticket.issueKey }),
+        });
+      }
 
       // Upload files
       for (const { file, type } of files) {
@@ -230,68 +253,103 @@ export function CreateThreatModel() {
         )}
 
         {currentStep === 'context' && (
-          <div className="space-y-4">
-            <div
-              {...getRootProps()}
-              className={cn(
-                'border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors',
-                isDragActive ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
+          <div className="space-y-6">
+            {/* JIRA Tickets Section */}
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-sm font-medium mb-2">JIRA Tickets</h4>
+                <JiraInput onTicketAdded={handleJiraTicketAdded} />
+              </div>
+
+              {jiraTickets.length > 0 && (
+                <div className="space-y-2">
+                  {jiraTickets.map((ticket) => (
+                    <JiraPreview
+                      key={ticket.issueKey}
+                      ticket={ticket}
+                      onRemove={() => removeJiraTicket(ticket.issueKey)}
+                    />
+                  ))}
+                </div>
               )}
-            >
-              <input {...getInputProps()} />
-              <Upload className="h-10 w-10 mx-auto mb-4 text-muted-foreground" />
-              <p className="text-sm font-medium mb-1">
-                {isDragActive ? 'Drop files here' : 'Drag & drop files here'}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                PDFs, images (PNG, JPG, GIF, WebP), and text files (TXT, MD, JSON)
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Files are sent directly to the AI for analysis
-              </p>
             </div>
 
-            {files.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium">Uploaded Files</h4>
-                {files.map((item, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-3 p-3 bg-muted rounded-md"
-                  >
-                    {getFileIcon(item.type)}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.file.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatFileSize(item.file.size)} · {item.type}
-                      </p>
-                    </div>
-                    <select
-                      value={item.type}
-                      onChange={(e) => {
-                        const newFiles = [...files];
-                        newFiles[index].type = e.target.value;
-                        setFiles(newFiles);
-                      }}
-                      className="text-xs px-2 py-1 border rounded bg-background"
-                    >
-                      <option value="prd">PRD</option>
-                      <option value="diagram">Diagram</option>
-                      <option value="screenshot">Screenshot</option>
-                      <option value="other">Other</option>
-                    </select>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeFile(index)}
-                      className="h-8 w-8"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
+            {/* Divider */}
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
               </div>
-            )}
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">
+                  Additional Files (Optional)
+                </span>
+              </div>
+            </div>
+
+            {/* File Upload Section */}
+            <div className="space-y-4">
+              <div
+                {...getRootProps()}
+                className={cn(
+                  'border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors',
+                  isDragActive ? 'border-primary bg-primary/5' : 'hover:border-primary/50'
+                )}
+              >
+                <input {...getInputProps()} />
+                <Upload className="h-10 w-10 mx-auto mb-4 text-muted-foreground" />
+                <p className="text-sm font-medium mb-1">
+                  {isDragActive ? 'Drop files here' : 'Drag & drop files here'}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  PDFs, images (PNG, JPG, GIF, WebP), and text files (TXT, MD, JSON)
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Files are sent directly to the AI for analysis
+                </p>
+              </div>
+
+              {files.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="text-sm font-medium">Uploaded Files</h4>
+                  {files.map((item, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center gap-3 p-3 bg-muted rounded-md"
+                    >
+                      {getFileIcon(item.type)}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{item.file.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatFileSize(item.file.size)} · {item.type}
+                        </p>
+                      </div>
+                      <select
+                        value={item.type}
+                        onChange={(e) => {
+                          const newFiles = [...files];
+                          newFiles[index].type = e.target.value;
+                          setFiles(newFiles);
+                        }}
+                        className="text-xs px-2 py-1 border rounded bg-background"
+                      >
+                        <option value="prd">PRD</option>
+                        <option value="diagram">Diagram</option>
+                        <option value="screenshot">Screenshot</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeFile(index)}
+                        className="h-8 w-8"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -326,6 +384,30 @@ export function CreateThreatModel() {
                       {systemDescription.substring(0, 500)}
                       {systemDescription.length > 500 && '...'}
                     </p>
+                  </div>
+                )}
+
+                {jiraTickets.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-2">
+                      JIRA Tickets ({jiraTickets.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {jiraTickets.map((ticket) => (
+                        <div
+                          key={ticket.issueKey}
+                          className="flex items-center gap-2 px-3 py-2 bg-muted rounded-md"
+                        >
+                          <span className="text-xs font-mono bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
+                            {ticket.issueKey}
+                          </span>
+                          <span className="text-sm truncate">{ticket.title}</span>
+                          <span className="text-xs text-muted-foreground ml-auto">
+                            {ticket.comments.length} comments
+                          </span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 

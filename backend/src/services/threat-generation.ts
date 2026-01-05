@@ -1,6 +1,7 @@
-import { db, threatModels, contextFiles } from '../db';
+import { db, threatModels, contextFiles, jiraTickets } from '../db';
 import { eq } from 'drizzle-orm';
-import type { ThreatModelSelect, ContextFileSelect } from '../db/schema';
+import type { ThreatModelSelect, ContextFileSelect, JiraTicketSelect } from '../db/schema';
+import { buildJiraContext } from './jira.service';
 import {
   getDefaultProvider,
   type LLMProvider,
@@ -166,6 +167,79 @@ async function fileToContentBlock(
 }
 
 /**
+ * Build context string from stored JIRA ticket data
+ */
+function buildJiraContextFromTicket(ticket: JiraTicketSelect): string {
+  let context = `## JIRA Ticket: ${ticket.issueKey}\n\n`;
+  context += `**Title:** ${ticket.title}\n`;
+  context += `**Type:** ${ticket.issueType}\n`;
+  context += `**Status:** ${ticket.status}\n`;
+  context += `**Priority:** ${ticket.priority || 'Not set'}\n\n`;
+
+  if (ticket.description) {
+    context += `### Description\n${ticket.description}\n\n`;
+  }
+
+  const labels = (ticket.labels || []) as string[];
+  if (labels.length > 0) {
+    context += `**Labels:** ${labels.join(', ')}\n\n`;
+  }
+
+  const reporter = ticket.reporter as { displayName: string; email?: string } | null;
+  const assignee = ticket.assignee as { displayName: string; email?: string } | null;
+
+  if (reporter) {
+    context += `**Reporter:** ${reporter.displayName}\n`;
+  }
+  if (assignee) {
+    context += `**Assignee:** ${assignee.displayName}\n`;
+  }
+  context += '\n';
+
+  // Add comments
+  const comments = (ticket.comments || []) as Array<{ id: string; author: string; body: string; created: string }>;
+  if (comments.length > 0) {
+    context += `### Comments (${comments.length})\n\n`;
+    for (const comment of comments) {
+      context += `**${comment.author}** (${comment.created}):\n`;
+      context += `${comment.body}\n\n`;
+    }
+  }
+
+  // Add linked issues
+  const linkedIssues = (ticket.linkedIssues || []) as Array<{ issueKey: string; title: string; linkType: string }>;
+  if (linkedIssues.length > 0) {
+    context += `### Linked Issues\n`;
+    for (const link of linkedIssues) {
+      context += `- ${link.linkType}: ${link.issueKey} - ${link.title}\n`;
+    }
+    context += '\n';
+  }
+
+  // Add external links
+  const remoteLinks = (ticket.remoteLinks || []) as Array<{ title: string; url: string }>;
+  if (remoteLinks.length > 0) {
+    context += `### External Links\n`;
+    for (const link of remoteLinks) {
+      context += `- [${link.title}](${link.url})\n`;
+    }
+    context += '\n';
+  }
+
+  // Add attachments list
+  const attachments = (ticket.attachments || []) as Array<{ filename: string; mimeType: string; size: number }>;
+  if (attachments.length > 0) {
+    context += `### Attachments\n`;
+    for (const att of attachments) {
+      context += `- ${att.filename} (${att.mimeType})\n`;
+    }
+    context += '\n';
+  }
+
+  return context;
+}
+
+/**
  * Parse the LLM response into structured result
  */
 function parseResponse(responseText: string): ThreatGenerationResult {
@@ -210,10 +284,10 @@ export async function generateThreatModel(threatModelId: string): Promise<void> 
       throw new Error('Threat model not found');
     }
 
-    const files = await db
-      .select()
-      .from(contextFiles)
-      .where(eq(contextFiles.threatModelId, threatModelId));
+    const [files, tickets] = await Promise.all([
+      db.select().from(contextFiles).where(eq(contextFiles.threatModelId, threatModelId)),
+      db.select().from(jiraTickets).where(eq(jiraTickets.threatModelId, threatModelId)),
+    ]);
 
     // Get the LLM provider
     const provider = getDefaultProvider();
@@ -228,6 +302,23 @@ export async function generateThreatModel(threatModelId: string): Promise<void> 
       type: 'text',
       text: textContext,
     });
+
+    // Add JIRA ticket context
+    if (tickets.length > 0) {
+      contentBlocks.push({
+        type: 'text',
+        text: `\n## JIRA Tickets (${tickets.length} tickets)\nThe following JIRA tickets provide context for this threat model:\n`,
+      });
+
+      for (const ticket of tickets) {
+        // Build context from the stored JIRA data
+        const jiraContext = buildJiraContextFromTicket(ticket);
+        contentBlocks.push({
+          type: 'text',
+          text: jiraContext,
+        });
+      }
+    }
 
     // Add file context description
     if (files.length > 0) {
@@ -253,7 +344,7 @@ export async function generateThreatModel(threatModelId: string): Promise<void> 
     // Add the analysis request
     contentBlocks.push({
       type: 'text',
-      text: '\n\nBased on all the information provided above (system description, questionnaire responses, and uploaded documents/diagrams), please analyze this system and generate a threat model with the top 5 most critical security threats.',
+      text: '\n\nBased on all the information provided above (system description, JIRA tickets, questionnaire responses, and uploaded documents/diagrams), please analyze this system and generate a threat model with the top 5 most critical security threats.',
     });
 
     // Call LLM provider

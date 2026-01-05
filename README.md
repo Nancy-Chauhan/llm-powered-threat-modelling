@@ -4,6 +4,7 @@ A self-serve threat modeling platform that uses LLMs to analyze system designs a
 
 ## Features
 
+- **JIRA Integration**: Import JIRA tickets with comments, links, and attachments as context
 - **Upload Context**: Support for PRDs, architecture diagrams, screenshots, and text files
 - **LLM-Powered Analysis**: Automatic threat generation using OpenAI or Anthropic
 - **STRIDE Methodology**: Threats categorized by Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege
@@ -159,6 +160,14 @@ llm-threat-modelling/
 | `S3_BUCKET` | - | S3 bucket name |
 | `S3_REGION` | - | AWS region |
 
+### JIRA Integration (Optional)
+
+| Variable | Description |
+|----------|-------------|
+| `JIRA_HOST` | JIRA instance URL (e.g., `https://company.atlassian.net`) |
+| `JIRA_EMAIL` | Email address for JIRA API authentication |
+| `JIRA_API_TOKEN` | JIRA API token ([Generate here](https://id.atlassian.com/manage-profile/security/api-tokens)) |
+
 ## Scripts
 
 | Command | Description |
@@ -191,6 +200,17 @@ llm-threat-modelling/
 |--------|----------|-------------|
 | POST | `/api/threat-models/:id/files` | Upload file |
 | DELETE | `/api/threat-models/:id/files/:fileId` | Delete file |
+
+### JIRA Integration
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/jira/status` | Check if JIRA is configured |
+| POST | `/api/jira/test` | Test JIRA connection |
+| POST | `/api/jira/fetch` | Fetch JIRA ticket data |
+| POST | `/api/threat-models/:id/jira-tickets` | Add JIRA ticket to model |
+| GET | `/api/threat-models/:id/jira-tickets` | List JIRA tickets |
+| DELETE | `/api/threat-models/:id/jira-tickets/:ticketId` | Remove JIRA ticket |
 
 ### Shared Access
 

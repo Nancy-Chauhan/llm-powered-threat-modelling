@@ -6,6 +6,7 @@ import { serveStatic } from 'hono/bun';
 import threatModelsRoutes from './routes/threat-models';
 import sharedRoutes from './routes/shared';
 import questionsRoutes from './routes/questions';
+import { jiraRoutes } from './routes/jira';
 
 const app = new Hono();
 
@@ -29,6 +30,7 @@ app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOStri
 app.route('/api/threat-models', threatModelsRoutes);
 app.route('/api/shared', sharedRoutes);
 app.route('/api/questions', questionsRoutes);
+app.route('/api/jira', jiraRoutes);
 
 // 404 handler
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

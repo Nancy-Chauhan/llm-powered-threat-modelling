@@ -1,129 +1,208 @@
 # Threat Modeling Dashboard
 
-A self-serve threat modeling dashboard that allows teams to upload design context (PRDs, diagrams, screenshots), answer guided questions, and generate AI-powered threat models with Top 5 risks, impact scores, and mitigations.
+A self-serve threat modeling platform that uses LLMs to analyze system designs and generate comprehensive security threat assessments using the STRIDE methodology.
 
 ## Features
 
-- **Create Threat Models**: Step-by-step wizard for providing context
-- **Upload Context**: Support for PRDs, architecture diagrams, and screenshots
-- **Guided Questions**: Security-focused questionnaire based on STRIDE methodology
-- **AI-Powered Generation**: Uses Claude to analyze context and identify threats
-- **Risk Scoring**: Automated risk calculation (Likelihood × Impact)
-- **Mitigations**: Actionable mitigation suggestions with priority and effort levels
-- **Shareable Links**: Generate public share links for stakeholder review
-- **Export**: Download as Markdown, JSON, or HTML (printable to PDF)
+- **Upload Context**: Support for PRDs, architecture diagrams, screenshots, and text files
+- **LLM-Powered Analysis**: Automatic threat generation using OpenAI or Anthropic
+- **STRIDE Methodology**: Threats categorized by Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, and Elevation of Privilege
+- **Risk Scoring**: Likelihood × Impact scoring with severity classification
+- **Mitigations**: Actionable remediation steps with priority and effort estimates
+- **Shareable Reports**: Generate public share links for stakeholders
+- **Export Options**: Markdown and JSON export formats
 
 ## Tech Stack
 
-- **Frontend**: React 18, Vite, Tailwind CSS, Zustand, Radix UI
-- **Backend**: Bun, Hono, Drizzle ORM, PostgreSQL
-- **AI**: Anthropic Claude API
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | React 18, Vite, TypeScript, Tailwind CSS, Radix UI, Zustand |
+| **Backend** | Bun, Hono, TypeScript, Drizzle ORM |
+| **Database** | PostgreSQL |
+| **LLM Providers** | OpenAI (GPT-4o), Anthropic (Claude) |
+| **Storage** | Local filesystem or S3-compatible |
+
+## Prerequisites
+
+- [Bun](https://bun.sh/) v1.0+
+- PostgreSQL 14+
+- OpenAI or Anthropic API key
 
 ## Quick Start
 
-### Prerequisites
+### 1. Clone and Install
 
-- [Bun](https://bun.sh/) v1.1+
-- [Docker](https://www.docker.com/) (for PostgreSQL)
-- Anthropic API key
+```bash
+git clone <repository-url>
+cd llm-threat-modelling
+bun install
+```
 
-### Setup
+### 2. Configure Environment
 
-1. **Clone and install dependencies**:
-   ```bash
-   git clone <repo-url>
-   cd threat-modeling-dashboard
-   bun install
-   ```
+```bash
+cp backend/.env.example backend/.env
+```
 
-2. **Start PostgreSQL**:
-   ```bash
-   docker-compose up -d
-   ```
+Edit `backend/.env` with your settings:
 
-3. **Configure environment**:
-   ```bash
-   cp backend/.env.example backend/.env
-   # Edit backend/.env and add your ANTHROPIC_API_KEY
-   ```
+```bash
+# Database
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/threat_modeling
 
-4. **Run database migrations**:
-   ```bash
-   bun run db:generate
-   bun run db:migrate
-   ```
+# LLM Provider ('openai' or 'anthropic')
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o
 
-5. **Start development servers**:
-   ```bash
-   bun run dev
-   ```
+# Or for Anthropic
+# LLM_PROVIDER=anthropic
+# ANTHROPIC_API_KEY=sk-ant-...
+# ANTHROPIC_MODEL=claude-sonnet-4-20250514
+```
 
-   - Frontend: http://localhost:5173
-   - Backend: http://localhost:3001
+### 3. Setup Database
+
+```bash
+# Create database
+createdb threat_modeling
+
+# Run migrations
+bun run db:migrate
+```
+
+### 4. Start Development
+
+```bash
+bun run dev
+```
+
+This starts both:
+- **Frontend**: http://localhost:5173
+- **Backend**: http://localhost:3001
 
 ## Project Structure
 
 ```
-threat-modeling-dashboard/
+llm-threat-modelling/
+├── frontend/                # React frontend
+│   ├── src/
+│   │   ├── components/      # Reusable UI components
+│   │   ├── pages/           # Route pages
+│   │   ├── store/           # Zustand state management
+│   │   └── lib/             # Utilities
+│   └── package.json
+├── backend/                 # Hono API server
+│   ├── src/
+│   │   ├── routes/          # API route handlers
+│   │   ├── services/        # Business logic
+│   │   ├── llm/             # LLM provider abstraction
+│   │   ├── storage/         # File storage abstraction
+│   │   └── db/              # Database schema & connection
+│   ├── drizzle/             # SQL migrations
+│   └── package.json
 ├── packages/
-│   └── shared/           # Shared types, schemas, API contracts
-├── frontend/             # React SPA
-│   ├── src/
-│   │   ├── components/   # UI components
-│   │   ├── pages/        # Page components
-│   │   ├── store/        # Zustand store
-│   │   └── lib/          # Utilities
-├── backend/              # Bun + Hono API
-│   ├── src/
-│   │   ├── db/           # Drizzle schema
-│   │   ├── routes/       # API routes
-│   │   └── services/     # Business logic
-└── docker-compose.yml    # PostgreSQL
+│   └── shared/              # Shared types & schemas
+└── package.json             # Workspace root
 ```
 
-## API Endpoints
+## Usage
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/threat-models` | List threat models |
-| POST | `/api/threat-models` | Create threat model |
-| GET | `/api/threat-models/:id` | Get threat model |
-| PATCH | `/api/threat-models/:id` | Update threat model |
-| DELETE | `/api/threat-models/:id` | Delete threat model |
-| POST | `/api/threat-models/:id/generate` | Start threat generation |
-| GET | `/api/threat-models/:id/generation-status` | Get generation status |
-| POST | `/api/threat-models/:id/share` | Create share link |
-| GET | `/api/threat-models/:id/export` | Export (format=markdown\|json\|pdf) |
-| POST | `/api/threat-models/:id/files` | Upload context file |
-| GET | `/api/shared/:token` | Get shared threat model |
-| GET | `/api/questions` | Get guided questions |
+### Creating a Threat Model
 
-## Scripts
+1. Click **"New Model"** from the dashboard
+2. Enter project name and system description
+3. Upload relevant files (PRDs, diagrams, screenshots)
+4. Click **"Generate Threat Model"**
+5. Review generated threats and mitigations
 
-```bash
-# Development
-bun run dev              # Start frontend + backend
-bun run dev:frontend     # Start frontend only
-bun run dev:backend      # Start backend only
+### Supported File Types
 
-# Database
-bun run db:generate      # Generate migrations
-bun run db:migrate       # Run migrations
-bun run db:studio        # Open Drizzle Studio
+| Type | Extensions | Notes |
+|------|------------|-------|
+| Images | PNG, JPG, GIF, WebP | Architecture diagrams, screenshots |
+| Documents | PDF | PRDs, design docs (Anthropic only) |
+| Text | TXT, MD, JSON | Requirements, configs |
 
-# Build
-bun run build            # Build all packages
-```
+### Sharing Reports
+
+1. Open a completed threat model
+2. Click **"Share"** to generate a public link
+3. Share the URL with stakeholders (read-only access)
+
+### Exporting
+
+- **Markdown**: Human-readable report format
+- **JSON**: Machine-readable for integrations
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@localhost:5432/threat_modeling` |
-| `PORT` | Backend server port | `3001` |
-| `ANTHROPIC_API_KEY` | Anthropic API key | Required |
-| `PUBLIC_URL` | Base URL for share links | `http://localhost:5173` |
-| `UPLOAD_DIR` | File upload directory | `./uploads` |
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `LLM_PROVIDER` | `openai` or `anthropic` |
+| `OPENAI_API_KEY` | OpenAI API key (if using OpenAI) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (if using Anthropic) |
+
+### Optional
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3001` | Backend server port |
+| `PUBLIC_URL` | `http://localhost:5173` | Frontend URL for share links |
+| `OPENAI_MODEL` | `gpt-4o` | OpenAI model to use |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-20250514` | Anthropic model to use |
+| `STORAGE_PROVIDER` | `local` | `local` or `s3` |
+| `UPLOAD_DIR` | `./uploads` | Local storage directory |
+| `S3_BUCKET` | - | S3 bucket name |
+| `S3_REGION` | - | AWS region |
+
+## Scripts
+
+| Command | Description |
+|---------|-------------|
+| `bun run dev` | Start frontend and backend in development |
+| `bun run build` | Build for production |
+| `bun run db:migrate` | Run database migrations |
+| `bun run db:generate` | Generate migrations from schema |
+| `bun run db:studio` | Open Drizzle Studio |
+
+## API Endpoints
+
+### Threat Models
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/threat-models` | List all models |
+| POST | `/api/threat-models` | Create new model |
+| GET | `/api/threat-models/:id` | Get model details |
+| PATCH | `/api/threat-models/:id` | Update model |
+| DELETE | `/api/threat-models/:id` | Delete model |
+| POST | `/api/threat-models/:id/generate` | Start generation |
+| GET | `/api/threat-models/:id/generation-status` | Poll status |
+| POST | `/api/threat-models/:id/share` | Create share link |
+| GET | `/api/threat-models/:id/export` | Export report |
+
+### Files
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/threat-models/:id/files` | Upload file |
+| DELETE | `/api/threat-models/:id/files/:fileId` | Delete file |
+
+### Shared Access
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/shared/:token` | Get shared model |
+| GET | `/api/shared/:token/export` | Export shared model |
+
+## Documentation
+
+- [Architecture](./docs/architecture.md) - System design and technical decisions
+- [Contributing](./CONTRIBUTING.md) - How to contribute to the project
 
 ## License
 

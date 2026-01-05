@@ -271,7 +271,10 @@ export function CreateThreatModel() {
                 {isDragActive ? 'Drop files here' : 'Drag & drop files here'}
               </p>
               <p className="text-xs text-muted-foreground">
-                PRDs, architecture diagrams, screenshots (PDF, PNG, JPG, TXT, MD)
+                PDFs, images (PNG, JPG, GIF, WebP), and text files (TXT, MD, JSON)
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Files are sent directly to the AI for analysis
               </p>
             </div>
 

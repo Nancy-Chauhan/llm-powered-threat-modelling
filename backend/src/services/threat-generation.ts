@@ -1,7 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { db, threatModels, contextFiles } from '../db';
 import { eq } from 'drizzle-orm';
+import { readFile } from 'fs/promises';
 import type { ThreatModelSelect, ContextFileSelect } from '../db/schema';
+import type { MessageParam, ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
 
 const anthropic = new Anthropic();
 
@@ -31,10 +33,8 @@ interface GenerationResult {
   recommendations: string[];
 }
 
-function buildPrompt(
-  threatModel: ThreatModelSelect,
-  files: ContextFileSelect[]
-): string {
+// Build text context from threat model metadata
+function buildTextContext(threatModel: ThreatModelSelect): string {
   const questionsAnswers = threatModel.questionsAnswers as Array<{
     questionId: string;
     question: string;
@@ -63,18 +63,62 @@ function buildPrompt(
     }
   }
 
-  if (files.length > 0) {
-    context += `## Uploaded Context Files\n`;
-    for (const file of files) {
-      context += `- ${file.originalName} (${file.fileType})\n`;
-      if (file.extractedText) {
-        context += `  Content: ${file.extractedText.substring(0, 2000)}...\n`;
+  return context;
+}
+
+// Convert file to Claude content block
+async function fileToContentBlock(file: ContextFileSelect): Promise<ContentBlockParam | null> {
+  try {
+    const fileData = await readFile(file.storagePath);
+    const base64Data = fileData.toString('base64');
+    const mimeType = file.mimeType;
+
+    // Handle images
+    if (mimeType.startsWith('image/')) {
+      const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
+      if (validImageTypes.includes(mimeType as any)) {
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+            data: base64Data,
+          },
+        };
       }
     }
-    context += '\n';
-  }
 
-  return context;
+    // Handle PDFs - Claude supports PDF natively
+    if (mimeType === 'application/pdf') {
+      return {
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: base64Data,
+        },
+      } as ContentBlockParam;
+    }
+
+    // Handle text files - read and include as text
+    if (mimeType.startsWith('text/') ||
+        mimeType === 'application/json' ||
+        file.originalName.endsWith('.md') ||
+        file.originalName.endsWith('.txt')) {
+      const textContent = fileData.toString('utf-8');
+      return {
+        type: 'text',
+        text: `\n--- File: ${file.originalName} (${file.fileType}) ---\n${textContent}\n--- End of ${file.originalName} ---\n`,
+      };
+    }
+
+    // Skip unsupported file types
+    console.warn(`Unsupported file type: ${mimeType} for ${file.originalName}`);
+    return null;
+  } catch (error) {
+    console.error(`Error reading file ${file.originalName}:`, error);
+    return null;
+  }
 }
 
 const SYSTEM_PROMPT = `You are a senior security architect performing threat modeling using the STRIDE methodology.
@@ -147,16 +191,51 @@ export async function generateThreatModel(threatModelId: string): Promise<void> 
       .from(contextFiles)
       .where(eq(contextFiles.threatModelId, threatModelId));
 
-    const context = buildPrompt(model, files);
+    // Build multimodal content array
+    const contentBlocks: ContentBlockParam[] = [];
 
-    // Call Claude API
+    // Add text context first
+    const textContext = buildTextContext(model);
+    contentBlocks.push({
+      type: 'text',
+      text: textContext,
+    });
+
+    // Add file context description
+    if (files.length > 0) {
+      contentBlocks.push({
+        type: 'text',
+        text: `\n## Uploaded Context Files (${files.length} files)\nThe following files have been uploaded for analysis:\n${files.map(f => `- ${f.originalName} (${f.fileType})`).join('\n')}\n\nPlease analyze these files to understand the system architecture, data flows, and potential security concerns:\n`,
+      });
+    }
+
+    // Convert and add each file as content block
+    for (const file of files) {
+      const contentBlock = await fileToContentBlock(file);
+      if (contentBlock) {
+        // Add a label before each file
+        contentBlocks.push({
+          type: 'text',
+          text: `\n[Analyzing: ${file.originalName}]\n`,
+        });
+        contentBlocks.push(contentBlock);
+      }
+    }
+
+    // Add the analysis request
+    contentBlocks.push({
+      type: 'text',
+      text: '\n\nBased on all the information provided above (system description, questionnaire responses, and uploaded documents/diagrams), please analyze this system and generate a threat model with the top 5 most critical security threats.',
+    });
+
+    // Call Claude API with multimodal content
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 4096,
       messages: [
         {
           role: 'user',
-          content: `${context}\n\nPlease analyze this system and generate a threat model with the top 5 most critical security threats.`,
+          content: contentBlocks,
         },
       ],
       system: SYSTEM_PROMPT,

@@ -307,6 +307,7 @@ app.get('/:id/export', async (c) => {
 });
 
 // Upload context file
+// Files are stored and sent directly to the LLM for parsing (images, PDFs, text)
 app.post('/:id/files', async (c) => {
   const id = c.req.param('id');
 
@@ -327,30 +328,48 @@ app.post('/:id/files', async (c) => {
     return c.json({ error: 'No file provided' }, 400);
   }
 
-  // Store file to disk (in production, use S3/MinIO)
+  // Validate supported file types for LLM
+  const supportedMimeTypes = [
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',  // Images
+    'application/pdf',                                       // PDFs
+    'text/plain', 'text/markdown', 'text/html',             // Text
+    'application/json',                                      // JSON
+  ];
+
+  const isTextFile = file.name.endsWith('.md') || file.name.endsWith('.txt');
+  if (!supportedMimeTypes.includes(file.type) && !isTextFile) {
+    return c.json({
+      error: `Unsupported file type: ${file.type}. Supported: images (PNG, JPG, GIF, WebP), PDFs, and text files.`
+    }, 400);
+  }
+
+  // Ensure uploads directory exists
+  const fs = await import('fs/promises');
+  try {
+    await fs.mkdir('uploads', { recursive: true });
+  } catch {
+    // Directory may already exist
+  }
+
+  // Store file to disk (will be sent to LLM during generation)
   const filename = `${nanoid()}-${file.name}`;
   const storagePath = `uploads/${filename}`;
 
   const buffer = await file.arrayBuffer();
   await Bun.write(storagePath, buffer);
 
-  // Extract text for text files
-  let extractedText: string | null = null;
-  if (file.type.startsWith('text/') || file.name.endsWith('.md') || file.name.endsWith('.txt')) {
-    extractedText = await file.text();
-  }
-
+  // No local text extraction - LLM will parse all file types
   const [contextFile] = await db
     .insert(contextFiles)
     .values({
       threatModelId: id,
       filename,
       originalName: file.name,
-      mimeType: file.type,
+      mimeType: file.type || (isTextFile ? 'text/plain' : 'application/octet-stream'),
       size: file.size,
       fileType: fileType as 'prd' | 'diagram' | 'screenshot' | 'other',
       storagePath,
-      extractedText,
+      extractedText: null, // LLM handles parsing
     })
     .returning();
 

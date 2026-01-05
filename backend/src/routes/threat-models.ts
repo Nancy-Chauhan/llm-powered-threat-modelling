@@ -6,6 +6,7 @@ import { eq, desc, sql, ilike, and } from 'drizzle-orm';
 import { db, threatModels, contextFiles } from '../db';
 import { generateThreatModel } from '../services/threat-generation';
 import { generateMarkdownReport, generateJsonExport } from '../services/pdf-export';
+import { getDefaultStorageProvider } from '../storage';
 import {
   CreateThreatModelRequestSchema,
   UpdateThreatModelRequestSchema,
@@ -307,7 +308,7 @@ app.get('/:id/export', async (c) => {
 });
 
 // Upload context file
-// Files are stored and sent directly to the LLM for parsing (images, PDFs, text)
+// Files are stored via storage provider (local/S3) and sent to LLM via URL
 app.post('/:id/files', async (c) => {
   const id = c.req.param('id');
 
@@ -343,38 +344,36 @@ app.post('/:id/files', async (c) => {
     }, 400);
   }
 
-  // Ensure uploads directory exists
-  const fs = await import('fs/promises');
-  try {
-    await fs.mkdir('uploads', { recursive: true });
-  } catch {
-    // Directory may already exist
-  }
+  // Upload file to storage provider (local filesystem or S3)
+  const storage = getDefaultStorageProvider();
+  const buffer = Buffer.from(await file.arrayBuffer());
 
-  // Store file to disk (will be sent to LLM during generation)
-  const filename = `${nanoid()}-${file.name}`;
-  const storagePath = `uploads/${filename}`;
+  const uploadResult = await storage.upload(buffer, file.name, {
+    contentType: file.type || (isTextFile ? 'text/plain' : 'application/octet-stream'),
+    metadata: {
+      threatModelId: id,
+      fileType,
+    },
+  });
 
-  const buffer = await file.arrayBuffer();
-  await Bun.write(storagePath, buffer);
-
-  // No local text extraction - LLM will parse all file types
+  // No local text extraction - LLM will parse all file types via URL
   const [contextFile] = await db
     .insert(contextFiles)
     .values({
       threatModelId: id,
-      filename,
+      filename: uploadResult.key,
       originalName: file.name,
       mimeType: file.type || (isTextFile ? 'text/plain' : 'application/octet-stream'),
       size: file.size,
       fileType: fileType as 'prd' | 'diagram' | 'screenshot' | 'other',
-      storagePath,
+      storagePath: uploadResult.key, // Storage key, not filesystem path
       extractedText: null, // LLM handles parsing
     })
     .returning();
 
   return c.json({
     ...contextFile,
+    url: uploadResult.url, // Include URL in response
     createdAt: contextFile.createdAt.toISOString(),
   }, 201);
 });
@@ -393,13 +392,12 @@ app.delete('/:id/files/:fileId', async (c) => {
     return c.json({ error: 'File not found' }, 404);
   }
 
-  // Delete from storage
+  // Delete from storage provider
   try {
-    await Bun.write(file.storagePath, ''); // Bun doesn't have unlink, so we'd use fs
-    const fs = await import('fs/promises');
-    await fs.unlink(file.storagePath);
+    const storage = getDefaultStorageProvider();
+    await storage.delete(file.storagePath);
   } catch {
-    // File might not exist
+    // File might not exist in storage
   }
 
   await db.delete(contextFiles).where(eq(contextFiles.id, fileId));

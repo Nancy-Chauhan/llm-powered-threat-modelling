@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
+import { serveStatic } from 'hono/bun';
 
 import threatModelsRoutes from './routes/threat-models';
 import sharedRoutes from './routes/shared';
@@ -16,6 +17,10 @@ app.use('*', cors({
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 }));
+
+// Serve static files from uploads directory (for local storage)
+const uploadDir = process.env.UPLOAD_DIR || './uploads';
+app.use('/uploads/*', serveStatic({ root: uploadDir.replace('./uploads', '.') }));
 
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));

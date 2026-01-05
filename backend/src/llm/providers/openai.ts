@@ -16,6 +16,7 @@ import type {
  *
  * Supports: text, images (JPEG, PNG, GIF, WebP)
  * Note: OpenAI doesn't support PDF natively - text must be extracted first
+ * Files are provided via URL - OpenAI fetches them directly.
  */
 export class OpenAIProvider implements LLMProvider {
   readonly name = 'openai';
@@ -111,10 +112,11 @@ export class OpenAIProvider implements LLMProvider {
             return { type: 'text', text: block.text };
 
           case 'image':
+            // Pass URL directly - OpenAI fetches images from URLs
             return {
               type: 'image_url',
               image_url: {
-                url: `data:${block.mimeType};base64,${block.data}`,
+                url: block.url,
                 detail: 'high',
               },
             };
@@ -127,7 +129,7 @@ export class OpenAIProvider implements LLMProvider {
             return null;
 
           default:
-            throw new Error(`Unsupported content type: ${(block as any).type}`);
+            throw new Error(`Unsupported content type: ${(block as ContentBlock).type}`);
         }
       })
       .filter((block): block is ChatCompletionContentPart => block !== null);

@@ -16,13 +16,15 @@ export interface TextContent {
 
 export interface ImageContent {
   type: 'image';
-  data: string; // base64
+  /** URL to the image file */
+  url: string;
   mimeType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
 }
 
 export interface DocumentContent {
   type: 'document';
-  data: string; // base64
+  /** URL to the document file */
+  url: string;
   mimeType: 'application/pdf';
   filename?: string;
 }

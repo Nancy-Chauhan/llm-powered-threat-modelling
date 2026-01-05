@@ -12,6 +12,7 @@ import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages';
  * Anthropic Claude Provider
  *
  * Supports: text, images (JPEG, PNG, GIF, WebP), PDFs
+ * Files are fetched from URLs and sent to the API.
  */
 export class AnthropicProvider implements LLMProvider {
   readonly name = 'anthropic';
@@ -31,13 +32,15 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async complete(request: LLMRequest): Promise<LLMResponse> {
-    // Convert messages to Anthropic format
-    const messages = request.messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({
-        role: m.role as 'user' | 'assistant',
-        content: this.convertContent(m.content),
-      }));
+    // Convert messages to Anthropic format (async to fetch URLs)
+    const messages = await Promise.all(
+      request.messages
+        .filter((m) => m.role !== 'system')
+        .map(async (m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: await this.convertContent(m.content),
+        }))
+    );
 
     // Get system prompt (from request or first system message)
     const systemPrompt =
@@ -80,41 +83,63 @@ export class AnthropicProvider implements LLMProvider {
     return true;
   }
 
-  private convertContent(
+  private async convertContent(
     content: string | ContentBlock[]
-  ): string | ContentBlockParam[] {
+  ): Promise<string | ContentBlockParam[]> {
     if (typeof content === 'string') {
       return content;
     }
 
-    return content.map((block): ContentBlockParam => {
+    const results: ContentBlockParam[] = [];
+
+    for (const block of content) {
       switch (block.type) {
         case 'text':
-          return { type: 'text', text: block.text };
+          results.push({ type: 'text', text: block.text });
+          break;
 
-        case 'image':
-          return {
+        case 'image': {
+          // Fetch image from URL and convert to base64
+          const imageData = await this.fetchAsBase64(block.url);
+          results.push({
             type: 'image',
             source: {
               type: 'base64',
               media_type: block.mimeType,
-              data: block.data,
+              data: imageData,
             },
-          };
+          });
+          break;
+        }
 
-        case 'document':
-          return {
+        case 'document': {
+          // Fetch document from URL and convert to base64
+          const docData = await this.fetchAsBase64(block.url);
+          results.push({
             type: 'document',
             source: {
               type: 'base64',
               media_type: block.mimeType,
-              data: block.data,
+              data: docData,
             },
-          } as ContentBlockParam;
+          } as ContentBlockParam);
+          break;
+        }
 
         default:
-          throw new Error(`Unsupported content type: ${(block as any).type}`);
+          throw new Error(`Unsupported content type: ${(block as ContentBlock).type}`);
       }
-    });
+    }
+
+    return results;
+  }
+
+  private async fetchAsBase64(url: string): Promise<string> {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch file from ${url}: ${response.statusText}`);
+    }
+    const buffer = await response.arrayBuffer();
+    return Buffer.from(buffer).toString('base64');
   }
 }

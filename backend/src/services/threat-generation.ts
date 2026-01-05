@@ -1,6 +1,5 @@
 import { db, threatModels, contextFiles } from '../db';
 import { eq } from 'drizzle-orm';
-import { readFile } from 'fs/promises';
 import type { ThreatModelSelect, ContextFileSelect } from '../db/schema';
 import {
   getDefaultProvider,
@@ -8,6 +7,7 @@ import {
   type ContentBlock,
   type ThreatGenerationResult,
 } from '../llm';
+import { getDefaultStorageProvider } from '../storage';
 
 // =============================================================================
 // System Prompt
@@ -96,16 +96,19 @@ function buildTextContext(threatModel: ThreatModelSelect): string {
 }
 
 /**
- * Convert file to provider-agnostic content block
+ * Convert file to provider-agnostic content block using storage URLs
  */
 async function fileToContentBlock(
   file: ContextFileSelect,
   provider: LLMProvider
 ): Promise<ContentBlock | null> {
   try {
-    const fileData = await readFile(file.storagePath);
-    const base64Data = fileData.toString('base64');
+    const storage = getDefaultStorageProvider();
     const mimeType = file.mimeType;
+
+    // Get URL for the file (signed URL for S3, public URL for local)
+    // Use 1 hour expiry for signed URLs
+    const fileUrl = await storage.getUrl(file.storagePath, 3600);
 
     // Handle images
     if (mimeType.startsWith('image/')) {
@@ -113,7 +116,7 @@ async function fileToContentBlock(
       if (validImageTypes.includes(mimeType)) {
         return {
           type: 'image',
-          data: base64Data,
+          url: fileUrl,
           mimeType: mimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
         };
       }
@@ -124,7 +127,7 @@ async function fileToContentBlock(
       if (provider.supportsPDF()) {
         return {
           type: 'document',
-          data: base64Data,
+          url: fileUrl,
           mimeType: 'application/pdf',
           filename: file.originalName,
         };
@@ -137,13 +140,15 @@ async function fileToContentBlock(
       }
     }
 
-    // Handle text files - read and include as text
+    // Handle text files - read content and include as text
+    // Text files need to be read since they're embedded inline
     if (
       mimeType.startsWith('text/') ||
       mimeType === 'application/json' ||
       file.originalName.endsWith('.md') ||
       file.originalName.endsWith('.txt')
     ) {
+      const fileData = await storage.get(file.storagePath);
       const textContent = fileData.toString('utf-8');
       return {
         type: 'text',
@@ -155,7 +160,7 @@ async function fileToContentBlock(
     console.warn(`Unsupported file type: ${mimeType} for ${file.originalName}`);
     return null;
   } catch (error) {
-    console.error(`Error reading file ${file.originalName}:`, error);
+    console.error(`Error processing file ${file.originalName}:`, error);
     return null;
   }
 }

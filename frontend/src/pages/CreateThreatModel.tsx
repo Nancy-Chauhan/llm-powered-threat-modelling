@@ -16,14 +16,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useThreatModelStore } from '@/store/threat-model-store';
 import { cn } from '@/lib/utils';
-import type { QuestionAnswer, GuidedQuestion } from '@threat-modeling/shared';
 
-type WizardStep = 'basics' | 'context' | 'questions' | 'review';
+type WizardStep = 'basics' | 'context' | 'review';
 
 const STEPS: { id: WizardStep; title: string; description: string }[] = [
   { id: 'basics', title: 'Basics', description: 'Name and describe your project' },
   { id: 'context', title: 'Context', description: 'Upload PRDs, diagrams, screenshots' },
-  { id: 'questions', title: 'Questions', description: 'Answer security questions' },
   { id: 'review', title: 'Review', description: 'Review and generate' },
 ];
 
@@ -33,8 +31,6 @@ export function CreateThreatModel() {
     createThreatModel,
     updateThreatModel,
     uploadFile,
-    fetchGuidedQuestions,
-    guidedQuestions,
     generateThreatModel,
     pollGenerationStatus,
     generationStatus,
@@ -51,13 +47,11 @@ export function CreateThreatModel() {
   const [description, setDescription] = useState('');
   const [systemDescription, setSystemDescription] = useState('');
   const [files, setFiles] = useState<Array<{ file: File; type: string }>>([]);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [modelId, setModelId] = useState<string | null>(null);
 
   useEffect(() => {
     clearError(); // Clear any previous errors
-    fetchGuidedQuestions();
-  }, [fetchGuidedQuestions, clearError]);
+  }, [clearError]);
 
   // Poll generation status
   useEffect(() => {
@@ -96,17 +90,11 @@ export function CreateThreatModel() {
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleAnswerChange = (questionId: string, answer: string) => {
-    setAnswers((prev) => ({ ...prev, [questionId]: answer }));
-  };
-
   const canProceed = () => {
     switch (currentStep) {
       case 'basics':
         return title.trim().length > 0;
       case 'context':
-        return true; // Optional
-      case 'questions':
         return true; // Optional
       case 'review':
         return true;
@@ -145,23 +133,6 @@ export function CreateThreatModel() {
       // Upload files
       for (const { file, type } of files) {
         await uploadFile(model.id, file, type);
-      }
-
-      // Save questionnaire answers
-      const questionsAnswers: QuestionAnswer[] = Object.entries(answers)
-        .filter(([_, answer]) => answer.trim())
-        .map(([questionId, answer]) => {
-          const question = guidedQuestions.find((q) => q.id === questionId);
-          return {
-            questionId,
-            question: question?.question || '',
-            answer,
-            category: question?.category,
-          };
-        });
-
-      if (questionsAnswers.length > 0) {
-        await updateThreatModel(model.id, { questionsAnswers });
       }
 
       // Start generation
@@ -324,38 +295,6 @@ export function CreateThreatModel() {
           </div>
         )}
 
-        {currentStep === 'questions' && (
-          <div className="space-y-6">
-            {groupQuestionsByCategory(guidedQuestions).map(([category, questions]) => (
-              <div key={category}>
-                <h4 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wider">
-                  {category}
-                </h4>
-                <div className="space-y-4">
-                  {questions.map((q) => (
-                    <div key={q.id} className="space-y-1">
-                      <label className="block text-sm font-medium">
-                        {q.question}
-                        {q.required && <span className="text-destructive ml-1">*</span>}
-                      </label>
-                      {q.helpText && (
-                        <p className="text-xs text-muted-foreground">{q.helpText}</p>
-                      )}
-                      <textarea
-                        value={answers[q.id] || ''}
-                        onChange={(e) => handleAnswerChange(q.id, e.target.value)}
-                        placeholder="Your answer..."
-                        className="w-full px-3 py-2 border rounded-md bg-background resize-none text-sm"
-                        rows={3}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
         {currentStep === 'review' && (
           <div className="space-y-6">
             {isGenerating ? (
@@ -406,17 +345,6 @@ export function CreateThreatModel() {
                         </span>
                       ))}
                     </div>
-                  </div>
-                )}
-
-                {Object.values(answers).filter(Boolean).length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-medium text-muted-foreground mb-2">
-                      Questionnaire ({Object.values(answers).filter(Boolean).length} answered)
-                    </h4>
-                    <p className="text-sm text-muted-foreground">
-                      Responses will be used to inform threat analysis
-                    </p>
                   </div>
                 )}
 
@@ -493,14 +421,4 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function groupQuestionsByCategory(questions: GuidedQuestion[]): [string, GuidedQuestion[]][] {
-  const groups: Record<string, GuidedQuestion[]> = {};
-  for (const q of questions) {
-    const cat = q.category || 'General';
-    if (!groups[cat]) groups[cat] = [];
-    groups[cat].push(q);
-  }
-  return Object.entries(groups).sort(([, a], [, b]) => a[0]?.order - b[0]?.order);
 }

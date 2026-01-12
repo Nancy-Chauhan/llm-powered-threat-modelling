@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { useThreatModelStore } from '@/store/threat-model-store';
 import { SeverityBadge } from '@/components/SeverityBadge';
 import { StatusBadge } from '@/components/StatusBadge';
+import { GoogleDriveConnect } from '@/components/GoogleDriveConnect';
 
 export function ThreatModelList() {
   const {
@@ -49,12 +50,15 @@ export function ThreatModelList() {
             Manage and view your threat models
           </p>
         </div>
-        <Link to="/new">
-          <Button>
-            <Plus className="h-4 w-4 mr-2" />
-            New Threat Model
-          </Button>
-        </Link>
+        <div className="flex items-center gap-3">
+          <GoogleDriveConnect />
+          <Link to="/new">
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              New Threat Model
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}

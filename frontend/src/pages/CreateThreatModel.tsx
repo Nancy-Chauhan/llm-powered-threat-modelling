@@ -15,9 +15,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useThreatModelStore } from '@/store/threat-model-store';
+import { useOAuthStore } from '@/store/oauth-store';
 import { cn } from '@/lib/utils';
 import { JiraInput, type JiraTicket } from '@/components/JiraInput';
 import { JiraPreview } from '@/components/JiraPreview';
+import { DriveFilePicker } from '@/components/DriveFilePicker';
 
 type WizardStep = 'basics' | 'context' | 'review';
 
@@ -31,7 +33,6 @@ export function CreateThreatModel() {
   const navigate = useNavigate();
   const {
     createThreatModel,
-    updateThreatModel,
     uploadFile,
     generateThreatModel,
     pollGenerationStatus,
@@ -50,7 +51,10 @@ export function CreateThreatModel() {
   const [systemDescription, setSystemDescription] = useState('');
   const [files, setFiles] = useState<Array<{ file: File; type: string }>>([]);
   const [jiraTickets, setJiraTickets] = useState<JiraTicket[]>([]);
+  const [driveFiles, setDriveFiles] = useState<Array<{ id: string; name: string }>>([]);
   const [modelId, setModelId] = useState<string | null>(null);
+
+  const { getFileContent } = useOAuthStore();
 
   useEffect(() => {
     clearError(); // Clear any previous errors
@@ -135,18 +139,35 @@ export function CreateThreatModel() {
   const handleSubmit = async () => {
     setIsSubmitting(true);
     try {
+      // Fetch Drive file contents and append to system description
+      let fullSystemDescription = systemDescription;
+      if (driveFiles.length > 0) {
+        const driveContents: string[] = [];
+        for (const file of driveFiles) {
+          try {
+            const { content, name } = await getFileContent(file.id);
+            driveContents.push(`\n\n--- ${name} ---\n${content}`);
+          } catch (err) {
+            console.warn(`Failed to fetch Drive file ${file.name}:`, err);
+          }
+        }
+        if (driveContents.length > 0) {
+          fullSystemDescription += '\n\n=== Google Drive Documents ===' + driveContents.join('');
+        }
+      }
+
       // Create threat model
       const model = await createThreatModel({
         title,
         description,
-        systemDescription,
+        systemDescription: fullSystemDescription,
       });
 
       setModelId(model.id);
 
       // Add JIRA tickets
       for (const ticket of jiraTickets) {
-        await fetch(`/api/threat-models/${model.id}/jira-tickets`, {
+        await fetch(`http://localhost:3001/api/threat-models/${model.id}/jira-tickets`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ issueKeyOrUrl: ticket.issueKey }),
@@ -281,6 +302,24 @@ export function CreateThreatModel() {
               </div>
               <div className="relative flex justify-center text-xs uppercase">
                 <span className="bg-card px-2 text-muted-foreground">
+                  Google Drive (Optional)
+                </span>
+              </div>
+            </div>
+
+            {/* Google Drive Section */}
+            <DriveFilePicker
+              selectedFiles={driveFiles}
+              onFilesChange={setDriveFiles}
+            />
+
+            {/* Divider */}
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">
                   Additional Files (Optional)
                 </span>
               </div>
@@ -406,6 +445,25 @@ export function CreateThreatModel() {
                             {ticket.comments.length} comments
                           </span>
                         </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {driveFiles.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-2">
+                      Google Drive Files ({driveFiles.length})
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {driveFiles.map((file) => (
+                        <span
+                          key={file.id}
+                          className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 rounded text-sm"
+                        >
+                          <FileText className="h-4 w-4 text-blue-500" />
+                          {file.name}
+                        </span>
                       ))}
                     </div>
                   </div>

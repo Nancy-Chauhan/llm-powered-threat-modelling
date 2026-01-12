@@ -7,6 +7,7 @@ import threatModelsRoutes from './routes/threat-models';
 import sharedRoutes from './routes/shared';
 import questionsRoutes from './routes/questions';
 import { jiraRoutes } from './routes/jira';
+import oauthRoutes from './routes/oauth';
 
 const app = new Hono();
 
@@ -31,6 +32,7 @@ app.route('/api/threat-models', threatModelsRoutes);
 app.route('/api/shared', sharedRoutes);
 app.route('/api/questions', questionsRoutes);
 app.route('/api/jira', jiraRoutes);
+app.route('/api/oauth', oauthRoutes);
 
 // 404 handler
 app.notFound((c) => c.json({ error: 'Not found' }, 404));

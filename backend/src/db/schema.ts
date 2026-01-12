@@ -32,6 +32,10 @@ export const fileTypeEnum = pgEnum('file_type', [
   'other',
 ]);
 
+export const oauthProviderEnum = pgEnum('oauth_provider', [
+  'google_drive',
+]);
+
 // Threat Models table
 export const threatModels = pgTable('threat_models', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -115,6 +119,18 @@ export const jiraTickets = pgTable('jira_tickets', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// OAuth Tokens table (for external integrations like Google Drive)
+export const oauthTokens = pgTable('oauth_tokens', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  provider: oauthProviderEnum('provider').notNull(),
+  accessToken: text('access_token').notNull(),
+  refreshToken: text('refresh_token').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  scope: text('scope'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Type definitions for JSONB columns
 interface QuestionAnswer {
   questionId: string;
@@ -179,3 +195,5 @@ export type ContextFileInsert = typeof contextFiles.$inferInsert;
 export type ContextFileSelect = typeof contextFiles.$inferSelect;
 export type JiraTicketInsert = typeof jiraTickets.$inferInsert;
 export type JiraTicketSelect = typeof jiraTickets.$inferSelect;
+export type OAuthTokenInsert = typeof oauthTokens.$inferInsert;
+export type OAuthTokenSelect = typeof oauthTokens.$inferSelect;

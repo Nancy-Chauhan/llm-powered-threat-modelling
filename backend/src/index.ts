@@ -13,8 +13,13 @@ const app = new Hono();
 
 // Middleware
 app.use('*', logger());
+
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',')
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
 app.use('*', cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000'],
+  origin: allowedOrigins,
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -23,6 +28,11 @@ app.use('*', cors({
 // Serve static files from uploads directory (for local storage)
 const uploadDir = process.env.UPLOAD_DIR || './uploads';
 app.use('/uploads/*', serveStatic({ root: uploadDir.replace('./uploads', '.') }));
+
+// Helper to check if running in production (evaluated at runtime, not build time)
+// Using dynamic property access to prevent bundler from inlining
+const getEnv = (key: string) => process.env[key];
+const isProduction = () => getEnv('NODE_ENV') === 'production';
 
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
@@ -34,8 +44,26 @@ app.route('/api/questions', questionsRoutes);
 app.route('/api/jira', jiraRoutes);
 app.route('/api/oauth', oauthRoutes);
 
-// 404 handler
-app.notFound((c) => c.json({ error: 'Not found' }, 404));
+// Serve frontend static files in production (after API routes)
+app.use('/assets/*', serveStatic({ root: '../frontend/dist' }));
+app.get('/favicon.png', serveStatic({ path: '../frontend/dist/favicon.png' }));
+
+// 404 handler - serve index.html for SPA routing in production
+app.notFound(async (c) => {
+  const path = c.req.path;
+  // Return JSON 404 for API routes
+  if (path.startsWith('/api/') || path.startsWith('/uploads/') || path === '/health') {
+    return c.json({ error: 'Not found' }, 404);
+  }
+  // Serve index.html for SPA client-side routing in production
+  if (isProduction()) {
+    const indexHtml = Bun.file('../frontend/dist/index.html');
+    if (await indexHtml.exists()) {
+      return c.html(await indexHtml.text());
+    }
+  }
+  return c.json({ error: 'Not found' }, 404);
+});
 
 // Error handler
 app.onError((err, c) => {

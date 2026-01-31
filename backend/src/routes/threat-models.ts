@@ -2,10 +2,10 @@ import { Hono } from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z } from 'zod';
 import { nanoid } from 'nanoid';
-import { eq, desc, sql, ilike, and } from 'drizzle-orm';
-import { db, threatModels, contextFiles, jiraTickets } from '../db';
+import { eq, desc, sql, ilike, and, or } from 'drizzle-orm';
+import { db, threatModels, contextFiles, jiraTickets, userUsage } from '../db';
 import { generateThreatModel } from '../services/threat-generation';
-import { generateMarkdownReport, generateJsonExport } from '../services/pdf-export';
+import { generateMarkdownReport, generateJsonExport, generatePdfReport } from '../services/pdf-export';
 import { getDefaultStorageProvider } from '../storage';
 import {
   CreateThreatModelRequestSchema,
@@ -17,11 +17,48 @@ import {
   isJiraConfigured,
   parseJiraUrl,
 } from '../services/jira.service';
+import { authMiddleware } from '../middleware/auth';
 
 const app = new Hono();
 
-// List threat models
+// Default generation limit per user
+const DEFAULT_GENERATION_LIMIT = 5;
+
+// Apply auth middleware to all routes
+app.use('*', authMiddleware);
+
+// Helper to get or create user usage record
+async function getUserUsage(userId: string) {
+  let [usage] = await db
+    .select()
+    .from(userUsage)
+    .where(eq(userUsage.userId, userId));
+
+  if (!usage) {
+    [usage] = await db
+      .insert(userUsage)
+      .values({ userId, generationsUsed: 0, generationsLimit: DEFAULT_GENERATION_LIMIT })
+      .returning();
+  }
+
+  return usage;
+}
+
+// Get user usage stats
+app.get('/usage', async (c) => {
+  const { userId } = c.get('auth');
+  const usage = await getUserUsage(userId);
+
+  return c.json({
+    generationsUsed: usage.generationsUsed,
+    generationsLimit: usage.generationsLimit,
+    remaining: usage.generationsLimit - usage.generationsUsed,
+  });
+});
+
+// List threat models (filtered by user)
 app.get('/', async (c) => {
+  const { userId } = c.get('auth');
   const page = parseInt(c.req.query('page') || '1');
   const pageSize = parseInt(c.req.query('pageSize') || '20');
   const status = c.req.query('status');
@@ -29,19 +66,23 @@ app.get('/', async (c) => {
 
   const offset = (page - 1) * pageSize;
 
-  let whereClause = undefined;
-  const conditions = [];
+  // Always filter by userId for multi-tenancy
+  const conditions = [eq(threatModels.userId, userId)];
 
   if (status) {
     conditions.push(eq(threatModels.status, status as 'draft' | 'generating' | 'completed' | 'failed'));
   }
   if (search) {
-    conditions.push(ilike(threatModels.title, `%${search}%`));
+    const searchCondition = or(
+      ilike(threatModels.title, `%${search}%`),
+      ilike(threatModels.description, `%${search}%`)
+    );
+    if (searchCondition) {
+      conditions.push(searchCondition);
+    }
   }
 
-  if (conditions.length > 0) {
-    whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
-  }
+  const whereClause = conditions.length === 1 ? conditions[0] : and(...conditions);
 
   const [items, countResult] = await Promise.all([
     db
@@ -51,6 +92,8 @@ app.get('/', async (c) => {
         description: threatModels.description,
         status: threatModels.status,
         threats: threatModels.threats,
+        shareToken: threatModels.shareToken,
+        isPublic: threatModels.isPublic,
         createdAt: threatModels.createdAt,
         updatedAt: threatModels.updatedAt,
       })
@@ -77,6 +120,7 @@ app.get('/', async (c) => {
       }
     }
 
+    const baseUrl = process.env.PUBLIC_URL || 'http://localhost:5173';
     return {
       id: item.id,
       title: item.title,
@@ -84,6 +128,8 @@ app.get('/', async (c) => {
       status: item.status,
       threatCount: threats.length,
       highestSeverity,
+      isShared: item.isPublic && !!item.shareToken,
+      shareUrl: item.shareToken ? `${baseUrl}/shared/${item.shareToken}` : null,
       createdAt: item.createdAt.toISOString(),
       updatedAt: item.updatedAt.toISOString(),
     };
@@ -97,14 +143,15 @@ app.get('/', async (c) => {
   });
 });
 
-// Get single threat model
+// Get single threat model (with ownership check)
 app.get('/:id', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
 
   const [model] = await db
     .select()
     .from(threatModels)
-    .where(eq(threatModels.id, id));
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
   if (!model) {
     return c.json({ error: 'Threat model not found' }, 404);
@@ -132,8 +179,9 @@ app.get('/:id', async (c) => {
   });
 });
 
-// Create threat model
+// Create threat model (drafts are free, generation is limited)
 app.post('/', zValidator('json', CreateThreatModelRequestSchema), async (c) => {
+  const { userId } = c.get('auth');
   const body = c.req.valid('json');
 
   const [model] = await db
@@ -143,6 +191,7 @@ app.post('/', zValidator('json', CreateThreatModelRequestSchema), async (c) => {
       description: body.description,
       systemDescription: body.systemDescription,
       status: 'draft',
+      userId, // Associate with current user
     })
     .returning();
 
@@ -153,15 +202,16 @@ app.post('/', zValidator('json', CreateThreatModelRequestSchema), async (c) => {
   }, 201);
 });
 
-// Update threat model
+// Update threat model (with ownership check)
 app.patch('/:id', zValidator('json', UpdateThreatModelRequestSchema), async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
   const body = c.req.valid('json');
 
   const [existing] = await db
     .select()
     .from(threatModels)
-    .where(eq(threatModels.id, id));
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
   if (!existing) {
     return c.json({ error: 'Threat model not found' }, 404);
@@ -173,7 +223,7 @@ app.patch('/:id', zValidator('json', UpdateThreatModelRequestSchema), async (c) 
       ...body,
       updatedAt: new Date(),
     })
-    .where(eq(threatModels.id, id))
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)))
     .returning();
 
   return c.json({
@@ -183,32 +233,34 @@ app.patch('/:id', zValidator('json', UpdateThreatModelRequestSchema), async (c) 
   });
 });
 
-// Delete threat model
+// Delete threat model (with ownership check)
 app.delete('/:id', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
 
   const [existing] = await db
     .select()
     .from(threatModels)
-    .where(eq(threatModels.id, id));
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
   if (!existing) {
     return c.json({ error: 'Threat model not found' }, 404);
   }
 
-  await db.delete(threatModels).where(eq(threatModels.id, id));
+  await db.delete(threatModels).where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
   return c.json({ success: true });
 });
 
-// Generate threat model
+// Generate threat model (with rate limiting)
 app.post('/:id/generate', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
 
   const [model] = await db
     .select()
     .from(threatModels)
-    .where(eq(threatModels.id, id));
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
   if (!model) {
     return c.json({ error: 'Threat model not found' }, 404);
@@ -216,6 +268,28 @@ app.post('/:id/generate', async (c) => {
 
   if (model.status === 'generating') {
     return c.json({ error: 'Generation already in progress' }, 400);
+  }
+
+  // Check generation quota (only for new generations, not re-generations)
+  if (model.status !== 'completed' && model.status !== 'failed') {
+    const usage = await getUserUsage(userId);
+
+    if (usage.generationsUsed >= usage.generationsLimit) {
+      return c.json({
+        error: `Generation limit reached. You have used ${usage.generationsUsed}/${usage.generationsLimit} generations.`,
+        generationsUsed: usage.generationsUsed,
+        generationsLimit: usage.generationsLimit,
+      }, 429);
+    }
+
+    // Increment usage counter
+    await db
+      .update(userUsage)
+      .set({
+        generationsUsed: usage.generationsUsed + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(userUsage.userId, userId));
   }
 
   // Start generation in background
@@ -229,8 +303,9 @@ app.post('/:id/generate', async (c) => {
   });
 });
 
-// Get generation status
+// Get generation status (with ownership check)
 app.get('/:id/generation-status', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
 
   const [model] = await db
@@ -239,7 +314,7 @@ app.get('/:id/generation-status', async (c) => {
       generationError: threatModels.generationError,
     })
     .from(threatModels)
-    .where(eq(threatModels.id, id));
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
   if (!model) {
     return c.json({ error: 'Threat model not found' }, 404);
@@ -252,14 +327,15 @@ app.get('/:id/generation-status', async (c) => {
   });
 });
 
-// Create share link
+// Create share link (with ownership check)
 app.post('/:id/share', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
 
   const [model] = await db
     .select()
     .from(threatModels)
-    .where(eq(threatModels.id, id));
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
   if (!model) {
     return c.json({ error: 'Threat model not found' }, 404);
@@ -282,15 +358,38 @@ app.post('/:id/share', async (c) => {
   });
 });
 
-// Export threat model
-app.get('/:id/export', async (c) => {
+// Delete share link (with ownership check)
+app.delete('/:id/share', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
-  const format = c.req.query('format') || 'markdown';
 
   const [model] = await db
     .select()
     .from(threatModels)
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
+
+  if (!model) {
+    return c.json({ error: 'Threat model not found' }, 404);
+  }
+
+  await db
+    .update(threatModels)
+    .set({ shareToken: null, isPublic: false })
     .where(eq(threatModels.id, id));
+
+  return c.json({ success: true });
+});
+
+// Export threat model (with ownership check)
+app.get('/:id/export', async (c) => {
+  const { userId } = c.get('auth');
+  const id = c.req.param('id');
+  const format = c.req.query('format') || 'pdf';
+
+  const [model] = await db
+    .select()
+    .from(threatModels)
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
   if (!model) {
     return c.json({ error: 'Threat model not found' }, 404);
@@ -305,26 +404,37 @@ app.get('/:id/export', async (c) => {
     return c.json(generateJsonExport(model, files));
   }
 
-  // Default to markdown
-  const markdown = generateMarkdownReport(model, files);
+  if (format === 'markdown') {
+    const markdown = generateMarkdownReport(model, files);
+    return new Response(markdown, {
+      headers: {
+        'Content-Type': 'text/markdown',
+        'Content-Disposition': `attachment; filename="${model.title.replace(/[^a-z0-9]/gi, '_')}_threat_model.md"`,
+      },
+    });
+  }
 
-  return new Response(markdown, {
+  // Default to PDF
+  const pdfBuffer = await generatePdfReport(model, files);
+
+  return new Response(pdfBuffer as any, {
     headers: {
-      'Content-Type': 'text/markdown',
-      'Content-Disposition': `attachment; filename="${model.title.replace(/[^a-z0-9]/gi, '_')}_threat_model.md"`,
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${model.title.replace(/[^a-z0-9]/gi, '_')}_threat_model.pdf"`,
     },
   });
 });
 
-// Upload context file
+// Upload context file (with ownership check)
 // Files are stored via storage provider (local/S3) and sent to LLM via URL
 app.post('/:id/files', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
 
   const [model] = await db
     .select()
     .from(threatModels)
-    .where(eq(threatModels.id, id));
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
   if (!model) {
     return c.json({ error: 'Threat model not found' }, 404);
@@ -387,10 +497,21 @@ app.post('/:id/files', async (c) => {
   }, 201);
 });
 
-// Delete context file
+// Delete context file (with ownership check)
 app.delete('/:id/files/:fileId', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
   const fileId = c.req.param('fileId');
+
+  // Verify ownership of the threat model
+  const [model] = await db
+    .select()
+    .from(threatModels)
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
+
+  if (!model) {
+    return c.json({ error: 'Threat model not found' }, 404);
+  }
 
   const [file] = await db
     .select()
@@ -414,7 +535,7 @@ app.delete('/:id/files/:fileId', async (c) => {
   return c.json({ success: true });
 });
 
-// Update threat within a model
+// Update threat within a model (with ownership check)
 app.patch(
   '/:id/threats/:threatId',
   zValidator(
@@ -426,6 +547,7 @@ app.patch(
     })
   ),
   async (c) => {
+    const { userId } = c.get('auth');
     const id = c.req.param('id');
     const threatId = c.req.param('threatId');
     const body = c.req.valid('json');
@@ -433,7 +555,7 @@ app.patch(
     const [model] = await db
       .select()
       .from(threatModels)
-      .where(eq(threatModels.id, id));
+      .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
     if (!model) {
       return c.json({ error: 'Threat model not found' }, 404);
@@ -468,7 +590,7 @@ app.patch(
   }
 );
 
-// Update mitigation status
+// Update mitigation status (with ownership check)
 app.patch(
   '/:id/threats/:threatId/mitigations/:mitigationId',
   zValidator(
@@ -479,6 +601,7 @@ app.patch(
     })
   ),
   async (c) => {
+    const { userId } = c.get('auth');
     const id = c.req.param('id');
     const threatId = c.req.param('threatId');
     const mitigationId = c.req.param('mitigationId');
@@ -487,7 +610,7 @@ app.patch(
     const [model] = await db
       .select()
       .from(threatModels)
-      .where(eq(threatModels.id, id));
+      .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
     if (!model) {
       return c.json({ error: 'Threat model not found' }, 404);
@@ -525,7 +648,7 @@ app.patch(
 // JIRA Ticket Routes
 // =============================================================================
 
-// Add JIRA ticket to threat model
+// Add JIRA ticket to threat model (with ownership check)
 app.post(
   '/:id/jira-tickets',
   zValidator(
@@ -535,14 +658,15 @@ app.post(
     })
   ),
   async (c) => {
+    const { userId } = c.get('auth');
     const id = c.req.param('id');
     const { issueKeyOrUrl } = c.req.valid('json');
 
-    // Check if model exists
+    // Check if model exists and user owns it
     const [model] = await db
       .select()
       .from(threatModels)
-      .where(eq(threatModels.id, id));
+      .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
 
     if (!model) {
       return c.json({ error: 'Threat model not found' }, 404);
@@ -633,9 +757,20 @@ app.post(
   }
 );
 
-// List JIRA tickets for a threat model
+// List JIRA tickets for a threat model (with ownership check)
 app.get('/:id/jira-tickets', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
+
+  // Verify ownership
+  const [model] = await db
+    .select()
+    .from(threatModels)
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
+
+  if (!model) {
+    return c.json({ error: 'Threat model not found' }, 404);
+  }
 
   const tickets = await db
     .select()
@@ -650,10 +785,21 @@ app.get('/:id/jira-tickets', async (c) => {
   );
 });
 
-// Delete JIRA ticket from threat model
+// Delete JIRA ticket from threat model (with ownership check)
 app.delete('/:id/jira-tickets/:ticketId', async (c) => {
+  const { userId } = c.get('auth');
   const id = c.req.param('id');
   const ticketId = c.req.param('ticketId');
+
+  // Verify ownership
+  const [model] = await db
+    .select()
+    .from(threatModels)
+    .where(and(eq(threatModels.id, id), eq(threatModels.userId, userId)));
+
+  if (!model) {
+    return c.json({ error: 'Threat model not found' }, 404);
+  }
 
   const [ticket] = await db
     .select()

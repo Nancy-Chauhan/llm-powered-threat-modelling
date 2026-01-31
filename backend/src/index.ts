@@ -7,7 +7,6 @@ import threatModelsRoutes from './routes/threat-models';
 import sharedRoutes from './routes/shared';
 import questionsRoutes from './routes/questions';
 import { jiraRoutes } from './routes/jira';
-import oauthRoutes from './routes/oauth';
 
 const app = new Hono();
 
@@ -42,11 +41,12 @@ app.route('/api/threat-models', threatModelsRoutes);
 app.route('/api/shared', sharedRoutes);
 app.route('/api/questions', questionsRoutes);
 app.route('/api/jira', jiraRoutes);
-app.route('/api/oauth', oauthRoutes);
 
 // Serve frontend static files in production (after API routes)
 app.use('/assets/*', serveStatic({ root: '../frontend/dist' }));
 app.get('/favicon.png', serveStatic({ path: '../frontend/dist/favicon.png' }));
+app.get('/shield.svg', serveStatic({ path: '../frontend/dist/shield.svg' }));
+app.get('/favicon.ico', serveStatic({ path: '../frontend/dist/favicon.png' }));
 
 // 404 handler - serve index.html for SPA routing in production
 app.notFound(async (c) => {

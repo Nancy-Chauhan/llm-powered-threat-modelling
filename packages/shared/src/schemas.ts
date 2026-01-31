@@ -325,6 +325,8 @@ export const ThreatModelSummarySchema = z.object({
   status: ThreatModelStatus,
   threatCount: z.number(),
   highestSeverity: RiskSeverity.optional(),
+  isShared: z.boolean().optional(),
+  shareUrl: z.string().nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

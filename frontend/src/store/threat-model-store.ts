@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { apiFetch } from '@/lib/utils';
+import { getAuthToken } from '@/lib/auth';
 import { API_ROUTES } from '@threat-modeling/shared';
 import type {
   ThreatModel,
@@ -42,6 +43,7 @@ interface ThreatModelState {
   pollGenerationStatus: (id: string) => Promise<GenerationStatusResponse>;
   fetchGuidedQuestions: () => Promise<void>;
   createShareLink: (id: string) => Promise<ShareLinkResponse>;
+  deleteShareLink: (id: string) => Promise<void>;
   uploadFile: (threatModelId: string, file: File, fileType: string) => Promise<void>;
   deleteFile: (threatModelId: string, fileId: string) => Promise<void>;
   updateThreat: (threatModelId: string, threatId: string, data: any) => Promise<void>;
@@ -194,16 +196,42 @@ export const useThreatModelStore = create<ThreatModelState>((set, get) => ({
     }
   },
 
+  deleteShareLink: async (id: string) => {
+    try {
+      await apiFetch(API_ROUTES.threatModels.share(id), { method: 'DELETE' });
+      // If we have a current model loaded, refresh it
+      const currentModel = get().currentModel;
+      if (currentModel && currentModel.id === id) {
+        await get().fetchThreatModel(id);
+      }
+    } catch (err: any) {
+      set({ error: err.message });
+      throw err;
+    }
+  },
+
   uploadFile: async (threatModelId: string, file: File, fileType: string) => {
     try {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('fileType', fileType);
 
-      await fetch(`/api/threat-models/${threatModelId}/files`, {
+      const token = await getAuthToken();
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch(`/api/threat-models/${threatModelId}/files`, {
         method: 'POST',
         body: formData,
+        headers,
       });
+
+      if (!res.ok) {
+        const error = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(error.error || 'File upload failed');
+      }
 
       // Refresh model to get updated files
       await get().fetchThreatModel(threatModelId);

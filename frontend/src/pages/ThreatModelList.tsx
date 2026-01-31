@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Trash2, ExternalLink, Clock, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Trash2, ExternalLink, Clock, AlertTriangle, Share2, Copy, Check, Link2Off } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useThreatModelStore } from '@/store/threat-model-store';
 import { SeverityBadge } from '@/components/SeverityBadge';
 import { StatusBadge } from '@/components/StatusBadge';
-import { GoogleDriveConnect } from '@/components/GoogleDriveConnect';
+import { apiFetch } from '@/lib/utils';
 
 export function ThreatModelList() {
   const {
@@ -17,15 +18,25 @@ export function ThreatModelList() {
     error,
     fetchThreatModels,
     deleteThreatModel,
+    createShareLink,
+    deleteShareLink,
     clearError,
   } = useThreatModelStore();
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [usage, setUsage] = useState<{ generationsUsed: number; generationsLimit: number } | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
 
   useEffect(() => {
     clearError(); // Clear any stale errors on mount
     fetchThreatModels(1, search || undefined, statusFilter || undefined);
+
+    // Fetch usage stats
+    apiFetch<{ generationsUsed: number; generationsLimit: number }>('/api/threat-models/usage')
+      .then(setUsage)
+      .catch(console.error);
   }, [fetchThreatModels, statusFilter, clearError]);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -41,6 +52,60 @@ export function ThreatModelList() {
     }
   };
 
+  const handleShare = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSharingId(id);
+    try {
+      const response = await createShareLink(id);
+      // Refresh the list to get the updated share status
+      await fetchThreatModels(page, search || undefined, statusFilter || undefined);
+      // Copy to clipboard
+      await navigator.clipboard.writeText(response.shareUrl);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+      toast.success('Share link created and copied to clipboard');
+    } catch (err) {
+      console.error('Failed to create share link:', err);
+      toast.error('Failed to create share link');
+    } finally {
+      setSharingId(null);
+    }
+  };
+
+  const handleStopSharing = async (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (confirm('Are you sure you want to stop sharing this threat model?')) {
+      setSharingId(id);
+      try {
+        await deleteShareLink(id);
+        // Refresh the list to get the updated share status
+        await fetchThreatModels(page, search || undefined, statusFilter || undefined);
+        toast.success('Share link removed');
+      } catch (err) {
+        console.error('Failed to delete share link:', err);
+        toast.error('Failed to remove share link');
+      } finally {
+        setSharingId(null);
+      }
+    }
+  };
+
+  const handleCopyLink = async (shareUrl: string, id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+      toast.success('Link copied to clipboard');
+    } catch (err) {
+      console.error('Failed to copy link:', err);
+      toast.error('Failed to copy link');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -51,7 +116,11 @@ export function ThreatModelList() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <GoogleDriveConnect />
+          {usage && (
+            <div className="text-sm text-muted-foreground px-3 py-1 bg-muted rounded-full">
+              {usage.generationsUsed}/{usage.generationsLimit} generations used
+            </div>
+          )}
           <Link to="/new">
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -148,12 +217,51 @@ export function ThreatModelList() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
+                  {model.isShared ? (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => handleCopyLink(model.shareUrl!, model.id, e)}
+                        className="text-muted-foreground hover:text-primary"
+                        title="Copy share link"
+                      >
+                        {copiedId === model.id ? (
+                          <Check className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => handleStopSharing(model.id, e)}
+                        className="text-muted-foreground hover:text-destructive"
+                        disabled={sharingId === model.id}
+                        title="Stop sharing"
+                      >
+                        <Link2Off className="h-4 w-4" />
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => handleShare(model.id, e)}
+                      className="text-muted-foreground hover:text-primary"
+                      disabled={sharingId === model.id}
+                      title="Share"
+                    >
+                      <Share2 className="h-4 w-4" />
+                    </Button>
+                  )}
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={(e) => handleDelete(model.id, e)}
                     className="text-muted-foreground hover:text-destructive"
+                    title="Delete"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>

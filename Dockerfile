@@ -10,7 +10,8 @@ COPY backend/package.json ./backend/
 COPY frontend/package.json ./frontend/
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+RUN rm -f bun.lock*
+RUN bun install
 
 # Copy source code
 COPY packages/shared ./packages/shared
@@ -37,13 +38,16 @@ COPY backend/package.json ./backend/
 COPY frontend/package.json ./frontend/
 
 # Install production dependencies only
-RUN bun install --frozen-lockfile --production --ignore-scripts
+RUN rm -f bun.lock*
+RUN bun install --production --ignore-scripts
 
 # Copy shared package source (needed at runtime)
 COPY packages/shared ./packages/shared
 
 # Copy built backend
 COPY --from=builder /app/backend/dist ./backend/dist
+COPY backend/drizzle.config.ts ./backend/
+COPY backend/src ./backend/src
 
 # Copy built frontend to be served by backend
 COPY --from=builder /app/frontend/dist ./frontend/dist

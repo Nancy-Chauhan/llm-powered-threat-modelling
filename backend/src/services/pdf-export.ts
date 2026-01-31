@@ -1,3 +1,4 @@
+import PDFDocument from 'pdfkit';
 import type { ThreatModelSelect, ContextFileSelect } from '../db/schema';
 import {
   SEVERITY_COLORS,
@@ -145,4 +146,152 @@ export function generateJsonExport(
     generatedAt: model.generationCompletedAt,
     exportedAt: new Date().toISOString(),
   };
+}
+
+export async function generatePdfReport(
+  model: ThreatModelSelect,
+  files: ContextFileSelect[]
+): Promise<Buffer> {
+  const threats = (model.threats || []) as Threat[];
+  const recommendations = (model.recommendations || []) as string[];
+  const questionsAnswers = (model.questionsAnswers || []) as Array<{
+    question: string;
+    answer: string;
+    category?: string;
+  }>;
+
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const doc = new PDFDocument({ margin: 50 });
+
+    doc.on('data', (chunk) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    // Title
+    doc.fontSize(24).font('Helvetica-Bold').text(`Threat Model Report`, { align: 'center' });
+    doc.fontSize(16).font('Helvetica').text(model.title, { align: 'center' });
+    doc.moveDown();
+
+    // Metadata
+    doc.fontSize(10).fillColor('#666')
+      .text(`Generated: ${new Date().toLocaleDateString()}`)
+      .text(`Status: ${model.status}`)
+      .fillColor('#000');
+    doc.moveDown();
+
+    // Description
+    if (model.description) {
+      doc.fontSize(14).font('Helvetica-Bold').text('Overview');
+      doc.fontSize(11).font('Helvetica').text(model.description);
+      doc.moveDown();
+    }
+
+    // Executive Summary
+    if (model.summary) {
+      doc.fontSize(14).font('Helvetica-Bold').text('Executive Summary');
+      doc.fontSize(11).font('Helvetica').text(model.summary);
+      doc.moveDown();
+    }
+
+    // Threat Summary
+    doc.fontSize(14).font('Helvetica-Bold').text('Threat Summary');
+    doc.moveDown(0.5);
+
+    const severityColors: Record<string, string> = {
+      critical: '#dc2626',
+      high: '#ea580c',
+      medium: '#ca8a04',
+      low: '#2563eb',
+      info: '#6b7280',
+    };
+
+    threats.forEach((threat, i) => {
+      const color = severityColors[threat.severity] || '#000';
+      doc.fontSize(11).font('Helvetica-Bold')
+        .text(`${i + 1}. ${threat.title}`, { continued: true })
+        .font('Helvetica').fillColor(color)
+        .text(` [${threat.severity.toUpperCase()}]`, { continued: false })
+        .fillColor('#000');
+      doc.fontSize(10).text(`   Risk Score: ${threat.riskScore}/25 | Category: ${CATEGORY_LABELS[threat.category] || threat.category}`);
+    });
+    doc.moveDown();
+
+    // Detailed Threats
+    doc.addPage();
+    doc.fontSize(18).font('Helvetica-Bold').text('Detailed Threat Analysis');
+    doc.moveDown();
+
+    threats.forEach((threat, i) => {
+      // Check if we need a new page
+      if (doc.y > 650) doc.addPage();
+
+      const color = severityColors[threat.severity] || '#000';
+
+      doc.fontSize(13).font('Helvetica-Bold')
+        .text(`${i + 1}. ${threat.title}`);
+
+      doc.fontSize(10).fillColor(color).font('Helvetica-Bold')
+        .text(`Severity: ${threat.severity.toUpperCase()}`, { continued: true })
+        .fillColor('#000').font('Helvetica')
+        .text(` | Likelihood: ${threat.likelihood}/5 | Impact: ${threat.impact}/5 | Risk: ${threat.riskScore}/25`);
+
+      doc.moveDown(0.3);
+      doc.fontSize(10).text(threat.description);
+
+      if (threat.attackVector) {
+        doc.moveDown(0.3);
+        doc.font('Helvetica-Bold').text('Attack Vector: ', { continued: true })
+          .font('Helvetica').text(threat.attackVector);
+      }
+
+      if (threat.affectedComponents.length > 0) {
+        doc.font('Helvetica-Bold').text('Affected Components: ', { continued: true })
+          .font('Helvetica').text(threat.affectedComponents.join(', '));
+      }
+
+      if (threat.mitigations.length > 0) {
+        doc.moveDown(0.3);
+        doc.font('Helvetica-Bold').text('Mitigations:');
+        threat.mitigations.forEach((m) => {
+          doc.fontSize(9).font('Helvetica')
+            .text(`  • [${m.priority.toUpperCase()}] ${m.description} (Effort: ${m.effort})`);
+        });
+      }
+
+      doc.moveDown();
+      doc.strokeColor('#ccc').moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+      doc.moveDown(0.5);
+    });
+
+    // Recommendations
+    if (recommendations.length > 0) {
+      if (doc.y > 600) doc.addPage();
+      doc.fontSize(14).font('Helvetica-Bold').text('Recommendations');
+      doc.moveDown(0.5);
+      recommendations.forEach((rec, i) => {
+        doc.fontSize(10).font('Helvetica').text(`${i + 1}. ${rec}`);
+      });
+      doc.moveDown();
+    }
+
+    // Context
+    if (model.systemDescription || questionsAnswers.length > 0) {
+      if (doc.y > 550) doc.addPage();
+      doc.fontSize(14).font('Helvetica-Bold').text('Context Information');
+      doc.moveDown(0.5);
+
+      if (model.systemDescription) {
+        doc.fontSize(11).font('Helvetica-Bold').text('System Description');
+        doc.fontSize(10).font('Helvetica').text(model.systemDescription);
+        doc.moveDown();
+      }
+    }
+
+    // Footer
+    doc.fontSize(8).fillColor('#999')
+      .text('Generated by Threat Modeling Dashboard', 50, 750, { align: 'center' });
+
+    doc.end();
+  });
 }

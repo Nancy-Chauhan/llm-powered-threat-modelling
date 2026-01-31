@@ -1,0 +1,35 @@
+services:
+  app:
+    build: .
+    # Ports removed, only accessed via proxy
+    expose:
+      - "3001"
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_URL=/app/data/threat-model.db
+      - CORS_ORIGINS=https://threatmodel.nancychauhan.com
+      - PUBLIC_URL=https://threatmodel.nancychauhan.com
+    volumes:
+      - sqlite_data:/app/data
+
+  proxy:
+    image: caddy:2-alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./certs:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  sqlite_data:
+  caddy_data:
+  caddy_config:

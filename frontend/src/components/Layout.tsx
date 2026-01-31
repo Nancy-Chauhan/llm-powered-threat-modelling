@@ -1,5 +1,12 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { Shield, Plus, List } from 'lucide-react';
+import {
+  SignedIn,
+  SignedOut,
+  SignInButton,
+  SignUpButton,
+  UserButton,
+} from '@clerk/clerk-react';
 import { cn } from '@/lib/utils';
 
 export function Layout() {
@@ -24,7 +31,7 @@ export function Layout() {
               )}
             >
               <List className="h-4 w-4" />
-              All Models
+              All Threat Models
             </Link>
             <Link
               to="/new"
@@ -38,6 +45,23 @@ export function Layout() {
               <Plus className="h-4 w-4" />
               New Model
             </Link>
+            <div className="flex items-center gap-2 ml-4 pl-4 border-l">
+              <SignedOut>
+                <SignInButton mode="modal">
+                  <button className="px-3 py-2 rounded-md text-sm hover:bg-accent transition-colors">
+                    Sign In
+                  </button>
+                </SignInButton>
+                <SignUpButton mode="modal">
+                  <button className="px-3 py-2 rounded-md text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+                    Sign Up
+                  </button>
+                </SignUpButton>
+              </SignedOut>
+              <SignedIn>
+                <UserButton afterSignOutUrl="/" />
+              </SignedIn>
+            </div>
           </nav>
         </div>
       </header>

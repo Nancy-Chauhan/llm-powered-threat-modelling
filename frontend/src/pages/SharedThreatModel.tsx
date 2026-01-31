@@ -74,7 +74,7 @@ export function SharedThreatModel() {
             <Shield className="h-6 w-6 text-primary" />
             <span className="font-semibold">Threat Model (Shared View)</span>
           </div>
-          <Button variant="outline" onClick={() => handleExport('markdown')}>
+          <Button variant="outline" onClick={() => handleExport('pdf')}>
             <Download className="h-4 w-4 mr-2" />
             Export
           </Button>

@@ -1,0 +1,4 @@
+threatmodel.nancychauhan.com {
+    tls /etc/caddy/certs/origin-cert.pem /etc/caddy/certs/origin-key.pem
+    reverse_proxy app:3001
+}

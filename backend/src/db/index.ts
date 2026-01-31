@@ -1,10 +1,8 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
-import postgres from 'postgres';
+import { drizzle } from 'drizzle-orm/bun-sqlite';
+import { Database } from 'bun:sqlite';
 import * as schema from './schema';
 
-const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/threat_modeling';
-
-const client = postgres(connectionString);
+const client = new Database(process.env.DATABASE_URL || 'sqlite.db');
 export const db = drizzle(client, { schema });
 
 export * from './schema';

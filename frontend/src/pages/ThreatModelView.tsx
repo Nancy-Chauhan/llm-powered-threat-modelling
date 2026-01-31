@@ -13,11 +13,14 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
+  Trash2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useThreatModelStore } from '@/store/threat-model-store';
 import { StatusBadge } from '@/components/StatusBadge';
 import { ThreatCard } from '@/components/ThreatCard';
+import { getAuthToken } from '@/lib/auth';
 
 export function ThreatModelView() {
   const { id } = useParams<{ id: string }>();
@@ -27,6 +30,7 @@ export function ThreatModelView() {
     error,
     fetchThreatModel,
     createShareLink,
+    deleteShareLink,
     generateThreatModel,
     pollGenerationStatus,
     generationStatus,
@@ -59,8 +63,10 @@ export function ThreatModelView() {
     try {
       const result = await createShareLink(id);
       setShareUrl(result.shareUrl);
+      toast.success('Share link generated');
     } catch (err) {
       console.error('Failed to create share link:', err);
+      toast.error('Failed to generate share link');
     }
   };
 
@@ -69,12 +75,53 @@ export function ThreatModelView() {
       navigator.clipboard.writeText(shareUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      toast.success('Link copied to clipboard');
     }
   };
 
-  const handleExport = (format: 'pdf' | 'markdown' | 'json') => {
+  const handleDeleteShare = async () => {
     if (!id) return;
-    window.open(`/api/threat-models/${id}/export?format=${format}`, '_blank');
+    try {
+      await deleteShareLink(id);
+      setShareUrl(null);
+      toast.success('Share link deleted');
+    } catch (err) {
+      console.error('Failed to delete share link:', err);
+      toast.error('Failed to delete share link');
+    }
+  };
+
+  const handleExport = async () => {
+    if (!id) return;
+
+    try {
+      const token = await getAuthToken();
+      const response = await fetch(`/api/threat-models/${id}/export?format=pdf`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Export failed');
+      }
+
+      const blob = await response.blob();
+      const filename = currentModel?.title
+        ? `${currentModel.title.replace(/[^a-z0-9]/gi, '_')}_threat_model.pdf`
+        : `threat_model.pdf`;
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Export failed:', err);
+    }
   };
 
   const handleRegenerate = async () => {
@@ -137,7 +184,7 @@ export function ThreatModelView() {
                 Share
               </Button>
               <div className="relative">
-                <Button variant="outline" onClick={() => handleExport('markdown')}>
+                <Button variant="outline" onClick={handleExport}>
                   <Download className="h-4 w-4 mr-2" />
                   Export
                 </Button>
@@ -169,6 +216,9 @@ export function ThreatModelView() {
           <code className="flex-1 text-sm truncate">{shareUrl}</code>
           <Button size="sm" variant="outline" onClick={handleCopyLink}>
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+          </Button>
+          <Button size="sm" variant="destructive" onClick={handleDeleteShare}>
+            <Trash2 className="h-4 w-4" />
           </Button>
         </div>
       )}

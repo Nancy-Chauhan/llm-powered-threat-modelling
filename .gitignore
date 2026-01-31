@@ -19,6 +19,9 @@ uploads/
 # Drizzle
 drizzle/
 
+# SSL Certificates (sensitive)
+certs/
+
 # Compiled Java class files
 *.class
 

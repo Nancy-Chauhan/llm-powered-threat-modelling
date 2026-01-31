@@ -1,93 +1,89 @@
 import {
-  pgTable,
-  uuid,
+  sqliteTable,
   text,
-  timestamp,
   integer,
-  boolean,
-  jsonb,
-  pgEnum,
-} from 'drizzle-orm/pg-core';
+} from 'drizzle-orm/sqlite-core';
 
-// Enums
-export const threatModelStatusEnum = pgEnum('threat_model_status', [
+// Enums (handled as arrays for application-level validation if needed, Drizzle SQLite doesn't enforce DB-level enums like Postgres)
+export const threatModelStatusEnum = [
   'draft',
   'generating',
   'completed',
   'failed',
-]);
+] as const;
 
-export const riskSeverityEnum = pgEnum('risk_severity', [
+export const riskSeverityEnum = [
   'critical',
   'high',
   'medium',
   'low',
   'info',
-]);
+] as const;
 
-export const fileTypeEnum = pgEnum('file_type', [
+export const fileTypeEnum = [
   'prd',
   'diagram',
   'screenshot',
   'other',
-]);
+] as const;
 
-export const oauthProviderEnum = pgEnum('oauth_provider', [
+export const oauthProviderEnum = [
   'google_drive',
-]);
+] as const;
 
 // Threat Models table
-export const threatModels = pgTable('threat_models', {
-  id: uuid('id').primaryKey().defaultRandom(),
+export const threatModels = sqliteTable('threat_models', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   title: text('title').notNull(),
   description: text('description'),
-  status: threatModelStatusEnum('status').notNull().default('draft'),
+  status: text('status', { enum: threatModelStatusEnum }).notNull().default('draft'),
   organizationId: text('organization_id').notNull().default('default'),
   createdBy: text('created_by').notNull().default('anonymous'),
+  userId: text('user_id'), // Clerk user ID
 
   // Context data
   systemDescription: text('system_description'),
-  questionsAnswers: jsonb('questions_answers').$type<QuestionAnswer[]>().default([]),
+  questionsAnswers: text('questions_answers', { mode: 'json' }).$type<QuestionAnswer[]>().$defaultFn(() => []),
 
   // Generated content
-  threats: jsonb('threats').$type<Threat[]>().default([]),
+  threats: text('threats', { mode: 'json' }).$type<Threat[]>().$defaultFn(() => []),
   summary: text('summary'),
-  recommendations: jsonb('recommendations').$type<string[]>().default([]),
+  recommendations: text('recommendations', { mode: 'json' }).$type<string[]>().$defaultFn(() => []),
 
   // Sharing
   shareToken: text('share_token').unique(),
-  isPublic: boolean('is_public').notNull().default(false),
+  isPublic: integer('is_public', { mode: 'boolean' }).notNull().default(false),
 
   // Generation metadata
-  generationStartedAt: timestamp('generation_started_at', { withTimezone: true }),
-  generationCompletedAt: timestamp('generation_completed_at', { withTimezone: true }),
+  generationStartedAt: integer('generation_started_at', { mode: 'timestamp' }),
+  generationCompletedAt: integer('generation_completed_at', { mode: 'timestamp' }),
   generationError: text('generation_error'),
 
   // Timestamps
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
 // Context Files table
-export const contextFiles = pgTable('context_files', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  threatModelId: uuid('threat_model_id')
+export const contextFiles = sqliteTable('context_files', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  threatModelId: text('threat_model_id')
     .notNull()
     .references(() => threatModels.id, { onDelete: 'cascade' }),
   filename: text('filename').notNull(),
   originalName: text('original_name').notNull(),
   mimeType: text('mime_type').notNull(),
   size: integer('size').notNull(),
-  fileType: fileTypeEnum('file_type').notNull().default('other'),
+  fileType: text('file_type', { enum: fileTypeEnum }).notNull().default('other'),
   storagePath: text('storage_path').notNull(),
   extractedText: text('extracted_text'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
-// JIRA Tickets table - stores JIRA ticket context for threat models
-export const jiraTickets = pgTable('jira_tickets', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  threatModelId: uuid('threat_model_id')
+// JIRA Tickets table
+export const jiraTickets = sqliteTable('jira_tickets', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  threatModelId: text('threat_model_id')
     .notNull()
     .references(() => threatModels.id, { onDelete: 'cascade' }),
 
@@ -101,34 +97,44 @@ export const jiraTickets = pgTable('jira_tickets', {
   issueType: text('issue_type').notNull(),
   status: text('status').notNull(),
   priority: text('priority'),
-  labels: jsonb('labels').$type<string[]>().default([]),
+  labels: text('labels', { mode: 'json' }).$type<string[]>().$defaultFn(() => []),
 
   // People
-  reporter: jsonb('reporter').$type<{ displayName: string; email?: string } | null>(),
-  assignee: jsonb('assignee').$type<{ displayName: string; email?: string } | null>(),
+  reporter: text('reporter', { mode: 'json' }).$type<{ displayName: string; email?: string } | null>(),
+  assignee: text('assignee', { mode: 'json' }).$type<{ displayName: string; email?: string } | null>(),
 
   // Related data as JSON
-  comments: jsonb('comments').$type<JiraComment[]>().default([]),
-  attachments: jsonb('attachments').$type<JiraAttachment[]>().default([]),
-  linkedIssues: jsonb('linked_issues').$type<JiraLinkedIssue[]>().default([]),
-  remoteLinks: jsonb('remote_links').$type<JiraRemoteLink[]>().default([]),
+  comments: text('comments', { mode: 'json' }).$type<JiraComment[]>().$defaultFn(() => []),
+  attachments: text('attachments', { mode: 'json' }).$type<JiraAttachment[]>().$defaultFn(() => []),
+  linkedIssues: text('linked_issues', { mode: 'json' }).$type<JiraLinkedIssue[]>().$defaultFn(() => []),
+  remoteLinks: text('remote_links', { mode: 'json' }).$type<JiraRemoteLink[]>().$defaultFn(() => []),
 
   // Timestamps
   jiraCreatedAt: text('jira_created_at'),
   jiraUpdatedAt: text('jira_updated_at'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
-// OAuth Tokens table (for external integrations like Google Drive)
-export const oauthTokens = pgTable('oauth_tokens', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  provider: oauthProviderEnum('provider').notNull(),
+// User Usage table
+export const userUsage = sqliteTable('user_usage', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique(),
+  generationsUsed: integer('generations_used').notNull().default(0),
+  generationsLimit: integer('generations_limit').notNull().default(5),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+});
+
+// OAuth Tokens table
+export const oauthTokens = sqliteTable('oauth_tokens', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  provider: text('provider', { enum: oauthProviderEnum }).notNull(),
   accessToken: text('access_token').notNull(),
   refreshToken: text('refresh_token').notNull(),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
   scope: text('scope'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull().$defaultFn(() => new Date()),
 });
 
 // Type definitions for JSONB columns
@@ -197,3 +203,5 @@ export type JiraTicketInsert = typeof jiraTickets.$inferInsert;
 export type JiraTicketSelect = typeof jiraTickets.$inferSelect;
 export type OAuthTokenInsert = typeof oauthTokens.$inferInsert;
 export type OAuthTokenSelect = typeof oauthTokens.$inferSelect;
+export type UserUsageInsert = typeof userUsage.$inferInsert;
+export type UserUsageSelect = typeof userUsage.$inferSelect;

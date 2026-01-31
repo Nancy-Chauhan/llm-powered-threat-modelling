@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { db, threatModels, contextFiles } from '../db';
-import { generateMarkdownReport, generateJsonExport } from '../services/pdf-export';
+import { generateMarkdownReport, generateJsonExport, generatePdfReport } from '../services/pdf-export';
 
 const app = new Hono();
 
@@ -52,7 +52,7 @@ app.get('/:token', async (c) => {
 // Export shared threat model
 app.get('/:token/export', async (c) => {
   const token = c.req.param('token');
-  const format = c.req.query('format') || 'markdown';
+  const format = c.req.query('format') || 'pdf';
 
   const [model] = await db
     .select()
@@ -72,12 +72,24 @@ app.get('/:token/export', async (c) => {
     return c.json(generateJsonExport(model, files));
   }
 
-  const markdown = generateMarkdownReport(model, files);
+  if (format === 'markdown') {
+    const markdown = generateMarkdownReport(model, files);
 
-  return new Response(markdown, {
+    return new Response(markdown, {
+      headers: {
+        'Content-Type': 'text/markdown',
+        'Content-Disposition': `attachment; filename="${model.title.replace(/[^a-z0-9]/gi, '_')}_threat_model.md"`,
+      },
+    });
+  }
+
+  // Default to PDF
+  const pdfBuffer = await generatePdfReport(model, files);
+
+  return new Response(pdfBuffer as any, {
     headers: {
-      'Content-Type': 'text/markdown',
-      'Content-Disposition': `attachment; filename="${model.title.replace(/[^a-z0-9]/gi, '_')}_threat_model.md"`,
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${model.title.replace(/[^a-z0-9]/gi, '_')}_threat_model.pdf"`,
     },
   });
 });

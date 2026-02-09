@@ -1,6 +1,7 @@
 # Threat Modeling Dashboard
 
 A self-serve threat modeling platform that uses LLMs to analyze system designs and generate comprehensive security threat assessments using the STRIDE methodology.
+<img width="800" height="689" alt="sd" src="https://github.com/user-attachments/assets/932fbbfe-ccf8-4788-9d0f-540c58bb6555" />
 
 ## Features
 
